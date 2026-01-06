@@ -422,19 +422,57 @@ async function savePost(status) {
 // 检查编辑模式
 function checkEditMode() {
     const params = getUrlParams();
-    if (params.id) {
-        writeState.postId = params.id;
-        loadPostForEdit(params.id);
+    if (params.slug) {
+        loadPostForEdit(params.slug);
     }
 }
 
 // 加载文章进行编辑
-async function loadPostForEdit(id) {
+async function loadPostForEdit(slug) {
     try {
-        // 这里需要通过ID获取文章，API文档中是通过slug获取
-        // 实际使用时可能需要调整
         showToast('加载文章中...', 'info');
+        const res = await postAPI.getDetail(slug);
+        
+        if (res.code === 200) {
+            const post = res.data;
+            writeState.postId = post.id;
+            
+            // 填充表单
+            writeElements.postTitle.value = post.title || '';
+            writeElements.editor.value = post.content || '';
+            writeElements.excerpt.value = post.excerpt || '';
+            writeElements.featured.checked = post.featured || false;
+            
+            // 封面图
+            if (post.coverImage) {
+                writeState.coverImage = post.coverImage;
+                writeElements.coverPreview.src = post.coverImage;
+                writeElements.coverPreview.style.display = 'block';
+                writeElements.uploadPlaceholder.style.display = 'none';
+            }
+            
+            // 分类
+            if (post.categoryId) {
+                writeElements.categorySelect.value = post.categoryId;
+            }
+            
+            // 标签
+            if (post.tags && post.tags.length > 0) {
+                post.tags.forEach(tagName => {
+                    const tag = writeState.tags.find(t => t.name === tagName);
+                    if (tag) {
+                        writeState.selectedTags.push({ id: tag.id, name: tag.name });
+                    }
+                });
+                renderSelectedTags();
+            }
+            
+            // 更新字数统计
+            handleEditorChange();
+            showToast('文章加载成功', 'success');
+        }
     } catch (error) {
+        console.error('加载文章失败:', error);
         showToast('加载失败', 'error');
     }
 }

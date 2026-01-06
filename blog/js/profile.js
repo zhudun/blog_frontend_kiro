@@ -215,7 +215,7 @@ function renderMyPosts(posts) {
                 </div>
                 <span class="status ${post.status}">${post.status === 'published' ? '已发布' : '草稿'}</span>
                 <div class="actions">
-                    <button onclick="editPost(${post.id})" title="编辑">
+                    <button onclick="editPost('${post.slug}')" title="编辑">
                         <i class="ri-edit-line"></i>
                     </button>
                     <button class="delete" onclick="deletePost(${post.id})" title="删除">
@@ -228,8 +228,8 @@ function renderMyPosts(posts) {
 }
 
 // 编辑文章
-function editPost(id) {
-    window.location.href = `write.html?id=${id}`;
+function editPost(slug) {
+    window.location.href = `write.html?slug=${slug}`;
 }
 
 // 删除文章

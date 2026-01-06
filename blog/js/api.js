@@ -34,6 +34,16 @@ const api = {
         localStorage.setItem('user', JSON.stringify(user));
     },
     
+    // 内部 toast 方法
+    toast(message, type = 'info') {
+        if (typeof showToast === 'function') {
+            showToast(message, type);
+        } else {
+            // 降级处理：如果 showToast 不存在，使用 alert
+            console.warn(`[${type}] ${message}`);
+        }
+    },
+    
     // 通用请求方法
     async request(url, options = {}) {
         const token = this.getToken();
@@ -54,16 +64,32 @@ const api = {
             
             const data = await response.json();
             
-            // Token 过期处理
-            if (data.code === 401) {
-                this.clearToken();
-                window.location.href = '/login.html';
-                return null;
+            // 根据状态码显示提示
+            if (data.code !== 200) {
+                const msg = data.message || '操作失败';
+                if (data.code === 400) {
+                    this.toast(msg, 'warning');
+                } else if (data.code === 401) {
+                    this.toast(msg || '请先登录或登录已过期', 'warning');
+                    this.clearToken();
+                    setTimeout(() => {
+                        window.location.href = 'login.html';
+                    }, 1500);
+                } else if (data.code === 403) {
+                    this.toast(msg || '没有权限执行此操作', 'error');
+                } else if (data.code === 404) {
+                    this.toast(msg || '请求的资源不存在', 'warning');
+                } else if (data.code >= 500 || data.code === 500) {
+                    this.toast(msg || '服务器错误', 'error');
+                } else {
+                    this.toast(msg, 'error');
+                }
             }
             
             return data;
         } catch (error) {
             console.error('API Error:', error);
+            this.toast('网络请求失败，请检查网络连接', 'error');
             throw error;
         }
     },
