@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>关于 - MyBlog</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.0.0/fonts/remixicon.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo">
+                <i class="ri-quill-pen-line"></i>
+                <span>MyBlog</span>
+            </a>
+            <div class="nav-links">
+                <a href="index.html">首页</a>
+                <a href="categories.html">分类</a>
+                <a href="tags.html">标签</a>
+                <a href="about.html" class="active">关于</a>
+            </div>
+            <div class="nav-actions">
+                <button class="theme-toggle" id="themeToggle"><i class="ri-moon-line"></i></button>
+                <div class="auth-buttons" id="authButtons">
+                    <a href="login.html" class="btn btn-outline">登录</a>
+                    <a href="register.html" class="btn btn-primary">注册</a>
+                </div>
+                <div class="user-menu" id="userMenu" style="display: none;">
+                    <img src="" alt="avatar" class="user-avatar" id="userAvatar">
+                    <div class="dropdown">
+                        <a href="profile.html"><i class="ri-user-line"></i> 个人中心</a>
+                        <a href="write.html"><i class="ri-edit-line"></i> 写文章</a>
+                        <a href="favorites.html"><i class="ri-bookmark-line"></i> 我的收藏</a>
+                        <a href="#" id="logoutBtn"><i class="ri-logout-box-line"></i> 退出登录</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <div class="container">
+            <div class="about-page">
+                <div class="about-hero">
+                    <div class="hero-icon">
+                        <i class="ri-quill-pen-line"></i>
+                    </div>
+                    <h1>MyBlog</h1>
+                    <p class="tagline">分享技术，记录生活</p>
+                </div>
+                
+                <div class="about-content">
+                    <section class="about-section">
+                        <h2><i class="ri-information-line"></i> 关于本站</h2>
+                        <p>这是一个简洁、美观、轻量的个人博客系统。在这里，你可以分享你的技术心得、生活感悟，与志同道合的人交流互动。</p>
+                    </section>
+                    
+                    <section class="about-section">
+                        <h2><i class="ri-star-line"></i> 特色功能</h2>
+                        <div class="features-grid">
+                            <div class="feature-item">
+                                <i class="ri-article-line"></i>
+                                <h3>文章管理</h3>
+                                <p>支持 Markdown 编辑，分类标签管理</p>
+                            </div>
+                            <div class="feature-item">
+                                <i class="ri-chat-3-line"></i>
+                                <h3>评论互动</h3>
+                                <p>支持嵌套回复，点赞互动</p>
+                            </div>
+                            <div class="feature-item">
+                                <i class="ri-bookmark-line"></i>
+                                <h3>收藏关注</h3>
+                                <p>收藏喜欢的文章，关注感兴趣的作者</p>
+                            </div>
+                            <div class="feature-item">
+                                <i class="ri-moon-line"></i>
+                                <h3>深色模式</h3>
+                                <p>支持明暗主题切换，保护眼睛</p>
+                            </div>
+                        </div>
+                    </section>
+                    
+                    <section class="about-section">
+                        <h2><i class="ri-code-line"></i> 技术栈</h2>
+                        <div class="tech-tags">
+                            <span>HTML5</span>
+                            <span>CSS3</span>
+                            <span>JavaScript</span>
+                            <span>Spring Boot</span>
+                            <span>MySQL</span>
+                            <span>JWT</span>
+                        </div>
+                    </section>
+                    
+                    <section class="about-section">
+                        <h2><i class="ri-links-line"></i> 联系方式</h2>
+                        <div class="contact-links">
+                            <a href="https://github.com" target="_blank" class="contact-item">
+                                <i class="ri-github-fill"></i>
+                                <span>GitHub</span>
+                            </a>
+                            <a href="https://twitter.com" target="_blank" class="contact-item">
+                                <i class="ri-twitter-x-fill"></i>
+                                <span>Twitter</span>
+                            </a>
+                            <a href="mailto:contact@example.com" class="contact-item">
+                                <i class="ri-mail-line"></i>
+                                <span>Email</span>
+                            </a>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-bottom">
+                <p>&copy; 2025 MyBlog. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/api.js"></script>
+    <script src="js/utils.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            initTheme();
+            initAuth();
+            document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+            const logoutBtn = document.getElementById('logoutBtn');
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    authAPI.logout();
+                });
+            }
+        });
+        
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            const icon = document.querySelector('#themeToggle i');
+            icon.className = savedTheme === 'dark' ? 'ri-sun-line' : 'ri-moon-line';
+        }
+        
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            const icon = document.querySelector('#themeToggle i');
+            icon.className = newTheme === 'dark' ? 'ri-sun-line' : 'ri-moon-line';
+        }
+        
+        function initAuth() {
+            const user = api.getUser();
+            if (user) {
+                document.getElementById('authButtons').style.display = 'none';
+                document.getElementById('userMenu').style.display = 'block';
+                document.getElementById('userAvatar').src = user.avatar || getDefaultAvatar(user.name);
+            }
+        }
+    </script>
+    
+    <style>
+        .about-page { max-width: 800px; margin: 0 auto; }
+        
+        .about-hero {
+            text-align: center;
+            padding: 60px 0;
+        }
+        .hero-icon {
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-radius: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            font-size: 48px;
+            color: white;
+        }
+        .about-hero h1 { font-size: 40px; font-weight: 700; margin-bottom: 8px; }
+        .about-hero .tagline { color: var(--text-secondary); font-size: 18px; }
+        
+        .about-content {
+            background: var(--bg-primary);
+            border-radius: var(--radius-lg);
+            padding: 48px;
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .about-section { margin-bottom: 40px; }
+        .about-section:last-child { margin-bottom: 0; }
+        .about-section h2 {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .about-section h2 i { color: var(--primary); }
+        .about-section > p { color: var(--text-secondary); line-height: 1.8; }
+        
+        .features-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+        .feature-item {
+            padding: 24px;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius);
+            text-align: center;
+        }
+        .feature-item i { font-size: 32px; color: var(--primary); margin-bottom: 12px; }
+        .feature-item h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+        .feature-item p { font-size: 14px; color: var(--text-secondary); }
+        
+        .tech-tags { display: flex; flex-wrap: wrap; gap: 12px; }
+        .tech-tags span {
+            padding: 8px 16px;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-full);
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+        
+        .contact-links { display: flex; gap: 16px; }
+        .contact-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 24px;
+            background: var(--bg-tertiary);
+            border-radius: var(--radius);
+            color: var(--text-secondary);
+            transition: var(--transition);
+        }
+        .contact-item:hover { background: var(--primary); color: white; }
+        .contact-item i { font-size: 20px; }
+        
+        @media (max-width: 600px) {
+            .features-grid { grid-template-columns: 1fr; }
+            .contact-links { flex-direction: column; }
+            .about-content { padding: 24px; }
+        }
+    </style>
+</body>
+</html>
