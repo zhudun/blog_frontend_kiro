@@ -4,7 +4,7 @@
  * - 同域部署: '/api'
  * - 跨域部署: 'https://api.yourdomain.com/api'
  */
-const API_BASE_URL = '/api';
+const API_BASE_URL = '/blog/api';
 
 // 创建请求实例
 const api = {
