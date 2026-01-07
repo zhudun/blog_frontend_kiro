@@ -1,7 +1,10 @@
 /**
  * API 请求封装
+ * 部署时修改为实际服务器地址，例如：
+ * - 同域部署: '/api'
+ * - 跨域部署: 'https://api.yourdomain.com/api'
  */
-const API_BASE_URL = 'http://localhost:11123/api';
+const API_BASE_URL = '/api';
 
 // 创建请求实例
 const api = {
