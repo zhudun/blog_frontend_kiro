@@ -230,6 +230,19 @@ function renderPost(post) {
     
     // 更新点赞数
     postElements.likeCount.textContent = formatNumber(post.likeCount || 0);
+    
+    // 渲染数学公式
+    if (typeof renderMathInElement !== 'undefined') {
+        renderMathInElement(document.querySelector('.post-content'), {
+            delimiters: [
+                {left: '$$', right: '$$', display: true},
+                {left: '$', right: '$', display: false},
+                {left: '\\[', right: '\\]', display: true},
+                {left: '\\(', right: '\\)', display: false}
+            ],
+            throwOnError: false
+        });
+    }
 }
 
 // 加载用户操作状态
