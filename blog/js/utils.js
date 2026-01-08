@@ -215,27 +215,65 @@ function escapeHtml(text) {
 function parseMarkdown(text) {
     if (!text) return '';
     
+    // 先处理代码块，避免被其他规则影响
+    const codeBlocks = [];
+    text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+        codeBlocks.push(`<pre><code class="language-${lang}">${code}</code></pre>`);
+        return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+    });
+    
     return text
-        // 代码块
-        .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="language-$1">$2</code></pre>')
-        // 行内代码
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        // 标题
+        // 表格
+        .replace(/^\|(.+)\|\s*\n\|[-:\s|]+\|\s*\n((?:\|.+\|\s*\n?)*)/gm, function(match, header, rows) {
+            const headers = header.split('|').filter(h => h.trim()).map(h => `<th>${h.trim()}</th>`).join('');
+            const rowsHtml = rows.trim().split('\n').map(row => {
+                const cells = row.split('|').filter(c => c.trim()).map(c => `<td>${c.trim()}</td>`).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('');
+            return `<table><thead><tr>${headers}</tr></thead><tbody>${rowsHtml}</tbody></table>`;
+        })
+        // 分隔线
+        .replace(/^[-*_]{3,}\s*$/gm, '<hr>')
+        // 标题（从 h6 到 h1）
+        .replace(/^###### (.*$)/gm, '<h6>$1</h6>')
+        .replace(/^##### (.*$)/gm, '<h5>$1</h5>')
+        .replace(/^#### (.*$)/gm, '<h4>$1</h4>')
         .replace(/^### (.*$)/gm, '<h3>$1</h3>')
         .replace(/^## (.*$)/gm, '<h2>$1</h2>')
         .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+        // 无序列表（连续的列表项包裹在 ul 中）
+        .replace(/((?:^[\-\*] .+$\n?)+)/gm, function(match) {
+            const items = match.trim().split('\n').map(line => {
+                return line.replace(/^[\-\*] (.+)$/, '<li>$1</li>');
+            }).join('');
+            return `<ul>${items}</ul>`;
+        })
+        // 有序列表
+        .replace(/((?:^\d+\. .+$\n?)+)/gm, function(match) {
+            const items = match.trim().split('\n').map(line => {
+                return line.replace(/^\d+\. (.+)$/, '<li>$1</li>');
+            }).join('');
+            return `<ol>${items}</ol>`;
+        })
+        // 引用
+        .replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>')
         // 粗体
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         // 斜体
         .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        // 行内代码
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
         // 链接
         .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
         // 图片
         .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">')
-        // 引用
-        .replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>')
-        // 无序列表
-        .replace(/^\- (.*$)/gm, '<li>$1</li>')
-        // 换行
-        .replace(/\n/g, '<br>');
+        // 段落（两个换行符分隔）
+        .replace(/\n\n/g, '</p><p>')
+        // 单个换行
+        .replace(/\n/g, '<br>')
+        // 包裹段落
+        .replace(/^(.+)/, '<p>$1')
+        .replace(/(.+)$/, '$1</p>')
+        // 恢复代码块
+        .replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => codeBlocks[index]);
 }

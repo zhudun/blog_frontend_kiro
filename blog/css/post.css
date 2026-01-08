@@ -189,6 +189,35 @@
     margin-bottom: 8px;
 }
 
+.post-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 24px 0;
+    border: 1px solid var(--border-color);
+}
+
+.post-content table th,
+.post-content table td {
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    text-align: left;
+}
+
+.post-content table th {
+    background: var(--bg-tertiary);
+    font-weight: 600;
+}
+
+.post-content table tr:hover {
+    background: var(--bg-tertiary);
+}
+
+.post-content hr {
+    margin: 32px 0;
+    border: none;
+    border-top: 2px solid var(--border-color);
+}
+
 /* Author Card */
 .author-card {
     background: var(--bg-primary);
