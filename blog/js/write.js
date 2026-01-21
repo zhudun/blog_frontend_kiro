@@ -203,7 +203,7 @@ async function loadTags() {
         const res = await tagAPI.getAll();
         if (res.code === 200) {
             writeState.tags = res.data;
-            renderTagSuggestions(res.data.slice(0, 10));
+            renderTagSuggestions(res.data); // 显示所有标签
         }
     } catch (error) {
         console.error('加载标签失败:', error);
@@ -225,7 +225,7 @@ function renderTagSuggestions(tags) {
 }
 
 // 处理标签输入
-function handleTagInput(e) {
+async function handleTagInput(e) {
     if (e.key === 'Enter') {
         e.preventDefault();
         const value = writeElements.tagInput.value.trim();
@@ -235,8 +235,22 @@ function handleTagInput(e) {
             if (existingTag) {
                 addTag(existingTag.id, existingTag.name);
             } else {
-                // 创建新标签（使用临时ID）
-                addTag(`new_${Date.now()}`, value);
+                // 创建新标签
+                try {
+                    const res = await tagAPI.create({ name: value, slug: value.toLowerCase().replace(/\s+/g, '-') });
+                    if (res.code === 200) {
+                        // 重新加载标签列表
+                        await loadTags();
+                        // 添加新创建的标签
+                        const newTag = writeState.tags.find(t => t.name === value);
+                        if (newTag) {
+                            addTag(newTag.id, newTag.name);
+                        }
+                        showToast('标签创建成功', 'success');
+                    }
+                } catch (error) {
+                    showToast('标签创建失败', 'error');
+                }
             }
             writeElements.tagInput.value = '';
         }
@@ -379,7 +393,7 @@ async function savePost(status) {
         excerpt: excerpt || content.substring(0, 200),
         coverImage: writeState.coverImage,
         categoryId: categoryId ? parseInt(categoryId) : null,
-        tags: writeState.selectedTags.filter(t => !String(t.id).startsWith('new_')).map(t => parseInt(t.id)),
+        tags: writeState.selectedTags.map(t => parseInt(t.id)),
         featured,
         status
     };
