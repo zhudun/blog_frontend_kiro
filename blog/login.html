@@ -3,132 +3,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>登录 - MyBlog</title>
+    <title>登录 - 札记</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500&family=Noto+Serif+SC:wght@500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/auth.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.0.0/fonts/remixicon.css">
 </head>
-<body class="auth-page">
-    <div class="auth-container">
-        <div class="auth-card">
-            <div class="auth-header">
-                <a href="index.html" class="logo">
-                    <i class="ri-quill-pen-line"></i>
-                    <span>MyBlog</span>
-                </a>
-                <h1>欢迎回来</h1>
-                <p>登录你的账号继续</p>
-            </div>
-            
-            <form class="auth-form" id="loginForm">
-                <div class="form-group">
-                    <label for="email">邮箱</label>
-                    <div class="input-wrapper">
-                        <i class="ri-mail-line"></i>
-                        <input type="email" id="email" placeholder="请输入邮箱" required>
-                    </div>
-                </div>
-                
-                <div class="form-group">
-                    <label for="password">密码</label>
-                    <div class="input-wrapper">
-                        <i class="ri-lock-line"></i>
-                        <input type="password" id="password" placeholder="请输入密码" required>
-                        <button type="button" class="toggle-password">
-                            <i class="ri-eye-off-line"></i>
-                        </button>
-                    </div>
-                </div>
-                
-                <div class="form-options">
-                    <label class="checkbox">
-                        <input type="checkbox" id="remember">
-                        <span>记住我</span>
-                    </label>
-                    <a href="forgot-password.html">忘记密码？</a>
-                </div>
-                
-                <button type="submit" class="btn btn-primary btn-block">
-                    <span>登录</span>
-                    <i class="ri-arrow-right-line"></i>
-                </button>
-            </form>
-            
-            <div class="auth-footer">
-                <p>还没有账号？<a href="register.html">立即注册</a></p>
-            </div>
-        </div>
-        
-        <div class="auth-bg">
-            <div class="bg-content">
-                <h2>分享你的故事</h2>
-                <p>加入我们的社区，与志同道合的人分享你的想法和经验</p>
-            </div>
-        </div>
-    </div>
-    
-    <div class="toast-container" id="toastContainer"></div>
-    
+<body>
+    <header class="site-header" id="siteHeader"></header>
+    <main class="auth">
+        <h1>登录</h1>
+        <p class="hint">只用作者账号。这里不开放注册。</p>
+        <form id="loginForm">
+            <label class="field">
+                <span>邮箱</span>
+                <input type="email" id="email" autocomplete="username" required>
+            </label>
+            <label class="field">
+                <span>密码</span>
+                <input type="password" id="password" autocomplete="current-password" required>
+            </label>
+            <button type="submit" class="solid-btn" id="submitBtn">进入</button>
+        </form>
+    </main>
+    <div class="toasts" id="toastContainer"></div>
     <script src="js/api.js"></script>
     <script src="js/utils.js"></script>
+    <script src="js/site.js"></script>
     <script>
-        // 切换密码显示
-        document.querySelector('.toggle-password').addEventListener('click', function() {
-            const input = document.getElementById('password');
-            const icon = this.querySelector('i');
-            
-            if (input.type === 'password') {
-                input.type = 'text';
-                icon.className = 'ri-eye-line';
-            } else {
-                input.type = 'password';
-                icon.className = 'ri-eye-off-line';
+        document.addEventListener('DOMContentLoaded', () => {
+            mountChrome('login');
+            document.title = `登录 - ${SITE.name}`;
+            if (api.getToken()) {
+                window.location.href = 'write.html';
             }
-        });
-        
-        // 登录表单提交
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const email = document.getElementById('email').value.trim();
-            const password = document.getElementById('password').value;
-            
-            if (!email || !password) {
-                showToast('请填写完整信息', 'warning');
-                return;
-            }
-            
-            const btn = e.target.querySelector('button[type="submit"]');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="ri-loader-4-line"></i> 登录中...';
-            
-            try {
-                const res = await authAPI.login({ email, password });
-                
-                if (res.code === 200) {
-                    api.setToken(res.data.token);
-                    api.setUser(res.data.user);
-                    showToast('登录成功', 'success');
-                    
-                    setTimeout(() => {
-                        window.location.href = 'index.html';
-                    }, 1000);
-                } else {
-                    showToast(res.message || '登录失败', 'error');
+            document.getElementById('loginForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const btn = document.getElementById('submitBtn');
+                const email = document.getElementById('email').value.trim();
+                const password = document.getElementById('password').value;
+                btn.disabled = true;
+                btn.textContent = '正在进入';
+                try {
+                    const res = await authAPI.login({ email, password });
+                    if (res.code === 200) {
+                        api.setToken(res.data.token);
+                        api.setUser(res.data.user);
+                        const next = getUrlParams().next || 'write.html';
+                        const safe = /^[a-zA-Z0-9._?=&%-]+$/.test(next) ? next : 'write.html';
+                        window.location.href = safe;
+                    } else {
+                        showToast(res.message || '邮箱或密码不对', 'error');
+                        btn.disabled = false;
+                        btn.textContent = '进入';
+                    }
+                } catch (error) {
                     btn.disabled = false;
-                    btn.innerHTML = '<span>登录</span><i class="ri-arrow-right-line"></i>';
+                    btn.textContent = '进入';
                 }
-            } catch (error) {
-                showToast('登录失败，请稍后重试', 'error');
-                btn.disabled = false;
-                btn.innerHTML = '<span>登录</span><i class="ri-arrow-right-line"></i>';
-            }
+            });
         });
-        
-        // 如果已登录，跳转首页
-        if (api.getToken()) {
-            window.location.href = 'index.html';
-        }
     </script>
 </body>
 </html>

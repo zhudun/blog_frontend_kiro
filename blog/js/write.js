@@ -1,492 +1,276 @@
-/**
- * 写文章页面逻辑
- */
-
-// 检查登录状态
 if (!api.getToken()) {
-    window.location.href = 'login.html';
+    const next = 'write.html' + window.location.search;
+    window.location.href = 'login.html?next=' + encodeURIComponent(next);
 }
 
-// 状态
 const writeState = {
-    categories: [],
     tags: [],
     selectedTags: [],
     coverImage: '',
-    isPreview: false,
-    postId: null // 编辑模式时使用
+    previewing: false,
+    postId: null
 };
 
-// DOM 元素
-const writeElements = {
-    postTitle: document.getElementById('postTitle'),
-    editor: document.getElementById('editor'),
-    preview: document.getElementById('preview'),
-    wordCount: document.getElementById('wordCount'),
-    readTime: document.getElementById('readTime'),
-    previewToggle: document.getElementById('previewToggle'),
-    publishBtn: document.getElementById('publishBtn'),
-    saveDraft: document.getElementById('saveDraft'),
-    publishPanel: document.getElementById('publishPanel'),
-    overlay: document.getElementById('overlay'),
-    closePanel: document.getElementById('closePanel'),
-    cancelPublish: document.getElementById('cancelPublish'),
-    confirmPublish: document.getElementById('confirmPublish'),
-    coverUpload: document.getElementById('coverUpload'),
-    coverInput: document.getElementById('coverInput'),
-    coverPreview: document.getElementById('coverPreview'),
-    uploadPlaceholder: document.getElementById('uploadPlaceholder'),
-    categorySelect: document.getElementById('categorySelect'),
-    tagInput: document.getElementById('tagInput'),
-    selectedTags: document.getElementById('selectedTags'),
-    tagSuggestions: document.getElementById('tagSuggestions'),
-    excerpt: document.getElementById('excerpt'),
-    featured: document.getElementById('featured')
-};
+document.addEventListener('DOMContentLoaded', async () => {
+    document.title = `写文章 - ${SITE.name}`;
+    document.getElementById('brandLink').textContent = `← ${SITE.name}`;
+    document.querySelector('[data-theme-toggle]').addEventListener('click', toggleTheme);
 
-// 初始化
-document.addEventListener('DOMContentLoaded', () => {
-    initTheme();
-    initEventListeners();
-    loadCategories();
-    loadTags();
-    checkEditMode();
+    document.getElementById('editor').addEventListener('input', updateStats);
+    document.getElementById('previewToggle').addEventListener('click', togglePreview);
+    document.getElementById('publishBtn').addEventListener('click', () => savePost('published'));
+    document.getElementById('saveDraft').addEventListener('click', () => savePost('draft'));
+    document.getElementById('editorTools').addEventListener('click', (e) => {
+        const btn = e.target.closest('button');
+        if (btn) handleToolbar(btn.dataset.action);
+    });
+    document.getElementById('coverUpload').addEventListener('click', () => {
+        document.getElementById('coverInput').click();
+    });
+    document.getElementById('coverInput').addEventListener('change', (e) => uploadCover(e.target.files[0]));
+    document.getElementById('imageInput').addEventListener('change', (e) => insertUploadedImage(e.target.files[0]));
+    document.getElementById('tagInput').addEventListener('keydown', onTagKeydown);
+    document.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            savePost('published');
+        }
+    });
+
+    await Promise.all([loadCategories(), loadTags()]);
+    await loadForEdit();
+    updateStats();
 });
 
-// 初始化主题
-function initTheme() {
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', savedTheme);
-}
-
-// 初始化事件监听
-function initEventListeners() {
-    // 编辑器内容变化
-    writeElements.editor.addEventListener('input', handleEditorChange);
-    
-    // 预览切换
-    writeElements.previewToggle.addEventListener('click', togglePreview);
-    
-    // 工具栏按钮
-    document.querySelectorAll('.editor-toolbar button').forEach(btn => {
-        btn.addEventListener('click', () => handleToolbarAction(btn.dataset.action));
-    });
-    
-    // 发布按钮
-    writeElements.publishBtn.addEventListener('click', openPublishPanel);
-    writeElements.saveDraft.addEventListener('click', saveDraft);
-    
-    // 发布面板
-    writeElements.closePanel.addEventListener('click', closePublishPanel);
-    writeElements.cancelPublish.addEventListener('click', closePublishPanel);
-    writeElements.overlay.addEventListener('click', closePublishPanel);
-    writeElements.confirmPublish.addEventListener('click', publishPost);
-    
-    // 封面上传
-    writeElements.coverUpload.addEventListener('click', () => writeElements.coverInput.click());
-    writeElements.coverInput.addEventListener('change', handleCoverUpload);
-    
-    // 标签输入
-    writeElements.tagInput.addEventListener('keydown', handleTagInput);
-}
-
-// 处理编辑器内容变化
-function handleEditorChange() {
-    const content = writeElements.editor.value;
-    
-    // 更新字数统计
-    const wordCount = content.length;
-    writeElements.wordCount.textContent = `${wordCount} 字`;
-    
-    // 更新阅读时间（假设每分钟阅读300字）
-    const readTime = Math.ceil(wordCount / 300);
-    writeElements.readTime.textContent = `预计阅读 ${readTime} 分钟`;
-    
-    // 更新预览
-    if (writeState.isPreview) {
-        writeElements.preview.innerHTML = parseMarkdown(content);
+function updateStats() {
+    const content = document.getElementById('editor').value;
+    const count = content.replace(/\s/g, '').length;
+    document.getElementById('wordCount').textContent = `${count} 字`;
+    document.getElementById('readTime').textContent = `约 ${Math.max(1, Math.ceil(count / 400))} 分钟`;
+    if (writeState.previewing) {
+        document.getElementById('preview').innerHTML = parseMarkdown(content);
+        renderMath(document.getElementById('preview'));
     }
 }
 
-// 切换预览
 function togglePreview() {
-    writeState.isPreview = !writeState.isPreview;
-    
-    const wrapper = document.querySelector('.editor-wrapper');
-    wrapper.classList.toggle('show-preview', writeState.isPreview);
-    writeElements.previewToggle.classList.toggle('active', writeState.isPreview);
-    
-    if (writeState.isPreview) {
-        writeElements.preview.innerHTML = parseMarkdown(writeElements.editor.value);
-    }
+    writeState.previewing = !writeState.previewing;
+    document.getElementById('editorWrap').classList.toggle('show-preview', writeState.previewing);
+    document.getElementById('previewToggle').textContent = writeState.previewing ? '编辑' : '预览';
+    updateStats();
 }
 
-// 处理工具栏操作
-function handleToolbarAction(action) {
-    const editor = writeElements.editor;
+function handleToolbar(action) {
+    if (action === 'image') {
+        document.getElementById('imageInput').click();
+        return;
+    }
+
+    const editor = document.getElementById('editor');
     const start = editor.selectionStart;
     const end = editor.selectionEnd;
-    const selectedText = editor.value.substring(start, end);
-    
-    let insertText = '';
-    let cursorOffset = 0;
-    
+    const selected = editor.value.slice(start, end);
+    let insert = '';
+
     switch (action) {
-        case 'bold':
-            insertText = `**${selectedText || '粗体文本'}**`;
-            cursorOffset = selectedText ? 0 : -2;
-            break;
-        case 'italic':
-            insertText = `*${selectedText || '斜体文本'}*`;
-            cursorOffset = selectedText ? 0 : -1;
-            break;
-        case 'heading':
-            insertText = `\n## ${selectedText || '标题'}\n`;
-            break;
-        case 'quote':
-            insertText = `\n> ${selectedText || '引用文本'}\n`;
-            break;
+        case 'bold': insert = `**${selected || '粗体'}**`; break;
+        case 'italic': insert = `*${selected || '斜体'}*`; break;
+        case 'heading': insert = `\n## ${selected || '小标题'}\n`; break;
+        case 'quote': insert = `\n> ${selected || '引用'}\n`; break;
         case 'code':
-            if (selectedText.includes('\n')) {
-                insertText = `\n\`\`\`\n${selectedText}\n\`\`\`\n`;
-            } else {
-                insertText = `\`${selectedText || '代码'}\``;
-            }
+            insert = selected.includes('\n') ? `\n\`\`\`\n${selected}\n\`\`\`\n` : `\`${selected || '代码'}\``;
             break;
-        case 'link':
-            insertText = `[${selectedText || '链接文本'}](url)`;
-            break;
-        case 'image':
-            insertText = `![${selectedText || '图片描述'}](url)`;
-            break;
-        case 'ul':
-            insertText = `\n- ${selectedText || '列表项'}\n`;
-            break;
-        case 'ol':
-            insertText = `\n1. ${selectedText || '列表项'}\n`;
-            break;
+        case 'link': insert = `[${selected || '链接文字'}](https://)`; break;
+        case 'ul': insert = `\n- ${selected || '条目'}\n`; break;
+        default: return;
     }
-    
-    editor.value = editor.value.substring(0, start) + insertText + editor.value.substring(end);
+
+    editor.setRangeText(insert, start, end, 'end');
     editor.focus();
-    
-    const newPos = start + insertText.length + cursorOffset;
-    editor.setSelectionRange(newPos, newPos);
-    
-    handleEditorChange();
+    updateStats();
 }
 
-// 加载分类
 async function loadCategories() {
-    try {
-        const res = await categoryAPI.getAll();
-        if (res.code === 200) {
-            writeState.categories = res.data;
-            renderCategories(res.data);
-        }
-    } catch (error) {
-        console.error('加载分类失败:', error);
-    }
+    const res = await categoryAPI.getAll();
+    if (res.code !== 200 || !Array.isArray(res.data)) return;
+    const select = document.getElementById('categorySelect');
+    select.innerHTML = `<option value="">选择分类</option>` + res.data.map((cat) => (
+        `<option value="${cat.id}">${escapeHtml(cat.name)}</option>`
+    )).join('');
 }
 
-// 渲染分类选项
-function renderCategories(categories) {
-    writeElements.categorySelect.innerHTML = `
-        <option value="">请选择分类</option>
-        ${categories.map(cat => `<option value="${cat.id}">${escapeHtml(cat.name)}</option>`).join('')}
-    `;
-}
-
-// 加载标签
 async function loadTags() {
-    try {
-        const res = await tagAPI.getAll();
-        if (res.code === 200) {
-            writeState.tags = res.data;
-            renderTagSuggestions(res.data); // 显示所有标签
-        }
-    } catch (error) {
-        console.error('加载标签失败:', error);
-    }
-}
-
-// 渲染标签建议
-function renderTagSuggestions(tags) {
-    writeElements.tagSuggestions.innerHTML = tags.map(tag => `
-        <span class="tag" data-id="${tag.id}" data-name="${escapeHtml(tag.name)}">${escapeHtml(tag.name)}</span>
-    `).join('');
-    
-    // 绑定点击事件
-    writeElements.tagSuggestions.querySelectorAll('.tag').forEach(tag => {
-        tag.addEventListener('click', () => {
-            addTag(tag.dataset.id, tag.dataset.name);
-        });
+    const res = await tagAPI.getAll();
+    if (res.code !== 200 || !Array.isArray(res.data)) return;
+    writeState.tags = res.data;
+    const box = document.getElementById('tagSuggestions');
+    box.innerHTML = res.data.slice(0, 12).map((tag) => (
+        `<button type="button" class="pill" data-id="${tag.id}">${escapeHtml(tag.name)}</button>`
+    )).join('');
+    box.querySelectorAll('button').forEach((btn) => {
+        btn.addEventListener('click', () => addTag(btn.dataset.id, btn.textContent));
     });
 }
 
-// 处理标签输入
-async function handleTagInput(e) {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        const value = writeElements.tagInput.value.trim();
-        if (value) {
-            // 查找是否存在该标签
-            const existingTag = writeState.tags.find(t => t.name === value);
-            if (existingTag) {
-                addTag(existingTag.id, existingTag.name);
-            } else {
-                // 创建新标签
-                try {
-                    const res = await tagAPI.create({ name: value, slug: value.toLowerCase().replace(/\s+/g, '-') });
-                    if (res.code === 200) {
-                        // 重新加载标签列表
-                        await loadTags();
-                        // 添加新创建的标签
-                        const newTag = writeState.tags.find(t => t.name === value);
-                        if (newTag) {
-                            addTag(newTag.id, newTag.name);
-                        }
-                        showToast('标签创建成功', 'success');
-                    }
-                } catch (error) {
-                    showToast('标签创建失败', 'error');
-                }
-            }
-            writeElements.tagInput.value = '';
+async function onTagKeydown(e) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const input = document.getElementById('tagInput');
+    const value = input.value.trim();
+    if (!value) return;
+
+    const existing = writeState.tags.find((tag) => tag.name === value);
+    if (existing) {
+        addTag(existing.id, existing.name);
+    } else {
+        const res = await tagAPI.create({ name: value, slug: value.toLowerCase().replace(/\s+/g, '-') });
+        if (res.code === 200) {
+            await loadTags();
+            const created = writeState.tags.find((tag) => tag.name === value);
+            if (created) addTag(created.id, created.name);
         }
     }
+    input.value = '';
 }
 
-// 添加标签
 function addTag(id, name) {
-    // 检查是否已添加
-    if (writeState.selectedTags.find(t => t.name === name)) {
-        showToast('标签已添加', 'warning');
-        return;
-    }
-    
+    if (writeState.selectedTags.some((tag) => tag.name === name)) return;
     if (writeState.selectedTags.length >= 5) {
-        showToast('最多添加5个标签', 'warning');
+        showToast('最多五个标签', 'warning');
         return;
     }
-    
     writeState.selectedTags.push({ id, name });
     renderSelectedTags();
 }
 
-// 移除标签
-function removeTag(name) {
-    writeState.selectedTags = writeState.selectedTags.filter(t => t.name !== name);
-    renderSelectedTags();
-}
-
-// 渲染已选标签
 function renderSelectedTags() {
-    writeElements.selectedTags.innerHTML = writeState.selectedTags.map(tag => `
-        <span class="tag">
-            ${escapeHtml(tag.name)}
-            <button type="button" onclick="removeTag('${escapeHtml(tag.name)}')">
-                <i class="ri-close-line"></i>
-            </button>
-        </span>
+    const box = document.getElementById('selectedTags');
+    box.innerHTML = writeState.selectedTags.map((tag) => `
+        <span class="pill">${escapeHtml(tag.name)}<button type="button" data-name="${escapeHtml(tag.name)}" aria-label="移除">×</button></span>
     `).join('');
+    box.querySelectorAll('button').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            writeState.selectedTags = writeState.selectedTags.filter((tag) => tag.name !== btn.dataset.name);
+            renderSelectedTags();
+        });
+    });
 }
 
-// 处理封面上传
-async function handleCoverUpload(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    
-    // 检查文件类型
+async function uploadCover(file) {
+    const url = await uploadImage(file);
+    if (!url) return;
+    writeState.coverImage = url;
+    const preview = document.getElementById('coverPreview');
+    preview.src = url;
+    preview.hidden = false;
+    document.getElementById('uploadPlaceholder').textContent = '更换封面';
+}
+
+async function insertUploadedImage(file) {
+    const url = await uploadImage(file);
+    if (!url) return;
+    const editor = document.getElementById('editor');
+    const snippet = `\n![图片](${url})\n`;
+    editor.setRangeText(snippet, editor.selectionStart, editor.selectionEnd, 'end');
+    updateStats();
+}
+
+async function uploadImage(file) {
+    if (!file) return '';
     if (!file.type.startsWith('image/')) {
-        showToast('请上传图片文件', 'warning');
-        return;
+        showToast('请选择图片', 'warning');
+        return '';
     }
-    
-    // 检查文件大小（5MB）
     if (file.size > 5 * 1024 * 1024) {
-        showToast('图片大小不能超过5MB', 'warning');
-        return;
+        showToast('图片需要小于 5MB', 'warning');
+        return '';
     }
-    
     try {
-        showToast('上传中...', 'info');
         const res = await uploadAPI.image(file);
-        
-        if (res.code === 200) {
-            writeState.coverImage = res.data.url;
-            writeElements.coverPreview.src = res.data.url;
-            writeElements.coverPreview.style.display = 'block';
-            writeElements.uploadPlaceholder.style.display = 'none';
-            showToast('上传成功', 'success');
-        } else {
-            showToast(res.message || '上传失败', 'error');
-        }
+        if (res.code === 200 && res.data?.url) return res.data.url;
+        showToast(res.message || '上传失败', 'error');
     } catch (error) {
         showToast('上传失败', 'error');
     }
+    return '';
 }
 
-// 打开发布面板
-function openPublishPanel() {
-    const title = writeElements.postTitle.value.trim();
-    const content = writeElements.editor.value.trim();
-    
-    if (!title) {
-        showToast('请输入文章标题', 'warning');
-        writeElements.postTitle.focus();
-        return;
-    }
-    
-    if (!content) {
-        showToast('请输入文章内容', 'warning');
-        writeElements.editor.focus();
-        return;
-    }
-    
-    writeElements.publishPanel.classList.add('open');
-    writeElements.overlay.classList.add('show');
-}
-
-// 关闭发布面板
-function closePublishPanel() {
-    writeElements.publishPanel.classList.remove('open');
-    writeElements.overlay.classList.remove('show');
-}
-
-// 保存草稿
-async function saveDraft() {
-    await savePost('draft');
-}
-
-// 发布文章
-async function publishPost() {
-    await savePost('published');
-}
-
-// 保存文章
 async function savePost(status) {
-    const title = writeElements.postTitle.value.trim();
-    const content = writeElements.editor.value.trim();
-    const categoryId = writeElements.categorySelect.value;
-    const excerpt = writeElements.excerpt.value.trim();
-    const featured = writeElements.featured.checked;
-    
-    if (!title) {
-        showToast('请输入文章标题', 'warning');
+    const title = document.getElementById('postTitle').value.trim();
+    const content = document.getElementById('editor').value.trim();
+    const categoryId = document.getElementById('categorySelect').value;
+    const excerpt = document.getElementById('excerpt').value.trim();
+
+    if (!title || !content) {
+        showToast('先写标题和正文', 'warning');
         return;
     }
-    
-    if (!content) {
-        showToast('请输入文章内容', 'warning');
+    if (!categoryId) {
+        showToast('选一个分类', 'warning');
         return;
     }
-    
-    if (status === 'published' && !categoryId) {
-        showToast('请选择分类', 'warning');
-        return;
-    }
-    
-    const postData = {
+
+    const payload = {
         title,
         content,
-        excerpt: excerpt || content.substring(0, 200),
+        excerpt: excerpt || toPlain(content).slice(0, 140),
         coverImage: writeState.coverImage,
-        categoryId: categoryId ? parseInt(categoryId) : null,
-        tags: writeState.selectedTags.map(t => parseInt(t.id)),
-        featured,
+        categoryId: Number(categoryId),
+        tags: writeState.selectedTags.map((tag) => Number(tag.id)),
+        featured: false,
         status
     };
-    
-    const btn = status === 'published' ? writeElements.confirmPublish : writeElements.saveDraft;
+
+    const btn = status === 'published' ? document.getElementById('publishBtn') : document.getElementById('saveDraft');
     btn.disabled = true;
-    btn.innerHTML = '<i class="ri-loader-4-line"></i> 保存中...';
-    
     try {
-        let res;
-        if (writeState.postId) {
-            res = await postAPI.update(writeState.postId, postData);
-        } else {
-            res = await postAPI.create(postData);
-        }
-        
+        const res = writeState.postId
+            ? await postAPI.update(writeState.postId, payload)
+            : await postAPI.create(payload);
         if (res.code === 200) {
-            showToast(status === 'published' ? '发布成功' : '草稿已保存', 'success');
-            
-            if (status === 'published') {
+            writeState.postId = res.data.id;
+            showToast(status === 'published' ? '已发布' : '草稿已保存');
+            if (status === 'published' && res.data.slug) {
                 setTimeout(() => {
-                    window.location.href = `post.html?slug=${res.data.slug}`;
-                }, 1000);
-            } else {
-                writeState.postId = res.data.id;
+                    window.location.href = `post.html?slug=${encodeURIComponent(res.data.slug)}`;
+                }, 500);
             }
-        } else {
-            showToast(res.message || '保存失败', 'error');
         }
     } catch (error) {
         showToast('保存失败', 'error');
     } finally {
         btn.disabled = false;
-        btn.innerHTML = status === 'published' 
-            ? '<i class="ri-send-plane-line"></i> 确认发布'
-            : '<i class="ri-draft-line"></i> 存草稿';
     }
 }
 
-// 检查编辑模式
-function checkEditMode() {
-    const params = getUrlParams();
-    if (params.slug) {
-        loadPostForEdit(params.slug);
+async function loadForEdit() {
+    const slug = getUrlParams().slug;
+    if (!slug) return;
+    const res = await postAPI.getDetail(slug);
+    if (res.code !== 200 || !res.data) return;
+    const post = res.data;
+    const user = api.getUser();
+    if (!user || !post.author || String(user.id) !== String(post.author.id)) {
+        showToast('只能编辑自己的文章', 'warning');
+        setTimeout(() => { window.location.href = 'index.html'; }, 700);
+        return;
     }
-}
 
-// 加载文章进行编辑
-async function loadPostForEdit(slug) {
-    try {
-        showToast('加载文章中...', 'info');
-        const res = await postAPI.getDetail(slug);
-        
-        if (res.code === 200) {
-            const post = res.data;
-            writeState.postId = post.id;
-            
-            // 填充表单
-            writeElements.postTitle.value = post.title || '';
-            writeElements.editor.value = post.content || '';
-            writeElements.excerpt.value = post.excerpt || '';
-            writeElements.featured.checked = post.featured || false;
-            
-            // 封面图
-            if (post.coverImage) {
-                writeState.coverImage = post.coverImage;
-                writeElements.coverPreview.src = post.coverImage;
-                writeElements.coverPreview.style.display = 'block';
-                writeElements.uploadPlaceholder.style.display = 'none';
-            }
-            
-            // 分类
-            if (post.categoryId) {
-                writeElements.categorySelect.value = post.categoryId;
-            }
-            
-            // 标签
-            if (post.tags && post.tags.length > 0) {
-                post.tags.forEach(tagName => {
-                    const tag = writeState.tags.find(t => t.name === tagName);
-                    if (tag) {
-                        writeState.selectedTags.push({ id: tag.id, name: tag.name });
-                    }
-                });
-                renderSelectedTags();
-            }
-            
-            // 更新字数统计
-            handleEditorChange();
-            showToast('文章加载成功', 'success');
-        }
-    } catch (error) {
-        console.error('加载文章失败:', error);
-        showToast('加载失败', 'error');
+    writeState.postId = post.id;
+    document.getElementById('postTitle').value = post.title || '';
+    document.getElementById('editor').value = post.content || '';
+    document.getElementById('excerpt').value = post.excerpt || '';
+    if (post.categoryId) document.getElementById('categorySelect').value = post.categoryId;
+    if (post.coverImage) {
+        writeState.coverImage = post.coverImage;
+        const preview = document.getElementById('coverPreview');
+        preview.src = post.coverImage;
+        preview.hidden = false;
+        document.getElementById('uploadPlaceholder').textContent = '更换封面';
     }
+    (post.tags || []).forEach((name) => {
+        const tag = writeState.tags.find((item) => item.name === name);
+        if (tag) writeState.selectedTags.push({ id: tag.id, name: tag.name });
+    });
+    renderSelectedTags();
 }

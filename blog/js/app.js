@@ -1,407 +1,201 @@
-/**
- * 主应用逻辑
- */
-
-// 全局状态
 const state = {
-    posts: [],
-    categories: [],
-    tags: [],
     currentPage: 1,
     totalPages: 1,
-    sortBy: 'createdAt',
-    order: 'desc',
     keyword: '',
     categoryId: null,
     tagId: null,
-    loading: false
+    tagName: '',
+    mine: '',
+    loading: false,
+    categories: [],
+    tags: []
 };
 
-// DOM 元素
-const elements = {
-    featuredPosts: document.getElementById('featuredPosts'),
-    postsList: document.getElementById('postsList'),
-    categoryList: document.getElementById('categoryList'),
-    tagCloud: document.getElementById('tagCloud'),
-    hotPosts: document.getElementById('hotPosts'),
-    loadMoreBtn: document.getElementById('loadMoreBtn'),
-    searchInput: document.getElementById('searchInput'),
-    themeToggle: document.getElementById('themeToggle'),
-    backToTop: document.getElementById('backToTop'),
-    authButtons: document.getElementById('authButtons'),
-    userMenu: document.getElementById('userMenu'),
-    userAvatar: document.getElementById('userAvatar'),
-    logoutBtn: document.getElementById('logoutBtn')
-};
+document.addEventListener('DOMContentLoaded', async () => {
+    mountChrome('home');
+    document.getElementById('siteTitle').textContent = SITE.name;
+    document.getElementById('siteLede').textContent = SITE.tagline;
+    document.title = SITE.name;
 
-// ========== 初始化 ==========
-document.addEventListener('DOMContentLoaded', () => {
-    initTheme();
-    initAuth();
-    initEventListeners();
-    loadInitialData();
+    const params = getUrlParams();
+    state.categoryId = params.category || null;
+    state.tagId = params.tag || null;
+    state.keyword = params.keyword || '';
+    state.mine = params.mine || '';
+    document.getElementById('searchInput').value = state.keyword;
+
+    if (state.mine === 'drafts' && !isLoggedIn()) {
+        window.location.href = 'login.html?next=' + encodeURIComponent('index.html?mine=drafts');
+        return;
+    }
+
+    document.getElementById('searchInput').addEventListener('input', debounce((e) => {
+        state.keyword = e.target.value.trim();
+        state.currentPage = 1;
+        updateUrlParams({ keyword: state.keyword });
+        loadPosts();
+    }, 400));
+
+    document.getElementById('loadMoreBtn').addEventListener('click', () => {
+        if (state.currentPage < state.totalPages) {
+            state.currentPage += 1;
+            loadPosts(true);
+        }
+    });
+
+    window.addEventListener('popstate', () => window.location.reload());
+
+    await Promise.all([loadCategories(), loadTags()]);
+    await loadPosts();
 });
 
-// 初始化主题
-function initTheme() {
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', savedTheme);
-    updateThemeIcon(savedTheme);
-}
-
-// 更新主题图标
-function updateThemeIcon(theme) {
-    const icon = elements.themeToggle.querySelector('i');
-    icon.className = theme === 'dark' ? 'ri-sun-line' : 'ri-moon-line';
-}
-
-// 初始化认证状态
-function initAuth() {
-    const user = api.getUser();
-    if (user) {
-        elements.authButtons.style.display = 'none';
-        elements.userMenu.style.display = 'block';
-        elements.userAvatar.src = user.avatar || getDefaultAvatar(user.name);
-    } else {
-        elements.authButtons.style.display = 'flex';
-        elements.userMenu.style.display = 'none';
-    }
-}
-
-// 初始化事件监听
-function initEventListeners() {
-    // 主题切换
-    elements.themeToggle.addEventListener('click', toggleTheme);
-    
-    // 搜索
-    elements.searchInput.addEventListener('input', debounce(handleSearch, 500));
-    
-    // 加载更多
-    elements.loadMoreBtn.addEventListener('click', loadMorePosts);
-    
-    // 筛选标签
-    document.querySelectorAll('.filter-tab').forEach(tab => {
-        tab.addEventListener('click', handleFilterChange);
-    });
-    
-    // 回到顶部
-    window.addEventListener('scroll', throttle(handleScroll, 100));
-    elements.backToTop.addEventListener('click', scrollToTop);
-    
-    // 退出登录
-    if (elements.logoutBtn) {
-        elements.logoutBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            authAPI.logout();
-        });
-    }
-}
-
-// 加载初始数据
-async function loadInitialData() {
-    // 获取 URL 参数
-    const params = getUrlParams();
-    if (params.category) state.categoryId = params.category;
-    if (params.tag) state.tagId = params.tag;
-    if (params.keyword) {
-        state.keyword = params.keyword;
-        elements.searchInput.value = params.keyword;
-    }
-    
-    // 并行加载数据
-    await Promise.all([
-        loadFeaturedPosts(),
-        loadPosts(),
-        loadCategories(),
-        loadTags(),
-        loadHotPosts()
-    ]);
-}
-
-// ========== 文章相关 ==========
-
-// 加载精选文章
-async function loadFeaturedPosts() {
+async function loadCategories() {
     try {
-        const res = await postAPI.getList({ featured: true, limit: 3, status: 'published' });
-        if (res.code === 200 && res.data.records.length > 0) {
-            renderFeaturedPosts(res.data.records);
-        } else {
-            document.getElementById('featuredSection').style.display = 'none';
+        const res = await categoryAPI.getAll();
+        if (res.code === 200 && Array.isArray(res.data)) {
+            state.categories = res.data;
         }
     } catch (error) {
-        console.error('加载精选文章失败:', error);
+        console.error(error);
+    }
+    renderChips();
+}
+
+async function loadTags() {
+    try {
+        const res = await tagAPI.getAll();
+        if (res.code === 200 && Array.isArray(res.data)) {
+            state.tags = res.data;
+        }
+    } catch (error) {
+        console.error(error);
     }
 }
 
-// 渲染精选文章
-function renderFeaturedPosts(posts) {
-    elements.featuredPosts.innerHTML = posts.map(post => `
-        <a href="post.html?slug=${post.slug}" class="featured-card">
-            <img src="${post.coverImage || getDefaultCover(post.title)}" alt="${escapeHtml(post.title)}">
-            <div class="overlay">
-                <span class="category-badge">${escapeHtml(post.category)}</span>
-                <h3>${escapeHtml(post.title)}</h3>
-                <div class="meta">
-                    <span><i class="ri-eye-line"></i> ${formatNumber(post.views)}</span>
-                    <span><i class="ri-time-line"></i> ${post.readTime}分钟</span>
-                    <span><i class="ri-calendar-line"></i> ${formatDate(post.createdAt)}</span>
-                </div>
-            </div>
-        </a>
+function renderChips() {
+    const chips = document.getElementById('categoryChips');
+    const items = [{ id: '', name: '全部' }, ...state.categories];
+    chips.innerHTML = items.map((cat) => `
+        <button type="button" class="chip ${String(state.categoryId || '') === String(cat.id) ? 'is-active' : ''}" data-id="${cat.id}">
+            ${escapeHtml(cat.name)}
+        </button>
     `).join('');
+
+    chips.querySelectorAll('.chip').forEach((chip) => {
+        chip.addEventListener('click', () => {
+            state.categoryId = chip.dataset.id || null;
+            state.currentPage = 1;
+            updateUrlParams({ category: state.categoryId });
+            renderChips();
+            loadPosts();
+        });
+    });
 }
 
-// 加载文章列表
+function currentTagName() {
+    if (!state.tagId) return '';
+    const tag = state.tags.find((item) => String(item.id) === String(state.tagId));
+    return tag ? tag.name : '';
+}
+
+function renderNote() {
+    const note = document.getElementById('listNote');
+    const parts = [];
+    if (state.mine === 'drafts') parts.push('未发布的草稿');
+    const category = state.categories.find((item) => String(item.id) === String(state.categoryId));
+    if (category) parts.push(category.name);
+    const tagName = currentTagName();
+    if (tagName) parts.push(tagName);
+    if (state.keyword) parts.push(`搜索「${state.keyword}」`);
+
+    if (!parts.length) {
+        note.hidden = true;
+        return;
+    }
+
+    note.hidden = false;
+    note.innerHTML = `${escapeHtml(parts.join(' · '))} <button type="button" id="clearFilters">清除</button>`;
+    document.getElementById('clearFilters').addEventListener('click', () => {
+        state.categoryId = null;
+        state.tagId = null;
+        state.keyword = '';
+        state.mine = '';
+        state.currentPage = 1;
+        document.getElementById('searchInput').value = '';
+        updateUrlParams({ category: '', tag: '', keyword: '', mine: '' });
+        renderChips();
+        loadPosts();
+    });
+}
+
 async function loadPosts(append = false) {
     if (state.loading) return;
     state.loading = true;
-    
-    if (!append) {
-        elements.postsList.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-    }
-    
+    const list = document.getElementById('postsList');
+    if (!append) list.innerHTML = '<p class="loading">正在翻开…</p>';
+    renderNote();
+
     try {
         const params = {
             page: state.currentPage,
             limit: 10,
-            sortBy: state.sortBy,
-            order: state.order,
-            status: 'published'
+            sortBy: 'createdAt',
+            order: 'desc',
+            status: state.mine === 'drafts' ? 'draft' : 'published'
         };
-        
         if (state.keyword) params.keyword = state.keyword;
         if (state.categoryId) params.categoryId = state.categoryId;
         if (state.tagId) params.tagId = state.tagId;
-        
+
         const res = await postAPI.getList(params);
-        
-        if (res.code === 200) {
-            state.totalPages = res.data.pages;
-            
-            if (append) {
-                state.posts = [...state.posts, ...res.data.records];
-                appendPosts(res.data.records);
-            } else {
-                state.posts = res.data.records;
-                renderPosts(res.data.records);
-            }
-            
-            // 更新加载更多按钮状态
-            updateLoadMoreButton();
+        const records = res.code === 200 && res.data ? (res.data.records || []) : null;
+
+        if (!records) {
+            list.innerHTML = '<p class="empty">文章暂时没有加载出来。</p>';
+            return;
         }
+
+        state.totalPages = res.data.pages || 1;
+        if (append) {
+            list.insertAdjacentHTML('beforeend', records.map(renderEntry).join(''));
+        } else if (!records.length) {
+            list.innerHTML = `<p class="empty">${state.mine === 'drafts' ? '没有草稿。' : '还没有文章。'}</p>`;
+        } else {
+            list.innerHTML = records.map(renderEntry).join('');
+        }
+
+        const more = document.getElementById('loadMoreBtn');
+        const hasMore = state.currentPage < state.totalPages && records.length > 0;
+        more.hidden = !hasMore;
     } catch (error) {
-        console.error('加载文章失败:', error);
-        elements.postsList.innerHTML = `
-            <div class="empty-state">
-                <i class="ri-error-warning-line"></i>
-                <h3>加载失败</h3>
-                <p>请稍后重试</p>
-            </div>
-        `;
+        list.innerHTML = '<p class="empty">文章暂时没有加载出来。</p>';
     } finally {
         state.loading = false;
     }
 }
 
-// 渲染文章列表
-function renderPosts(posts) {
-    if (posts.length === 0) {
-        elements.postsList.innerHTML = `
-            <div class="empty-state">
-                <i class="ri-article-line"></i>
-                <h3>暂无文章</h3>
-                <p>还没有发布任何文章</p>
-            </div>
-        `;
-        return;
-    }
-    
-    elements.postsList.innerHTML = posts.map(renderPostCard).join('');
-}
-
-// 追加文章
-function appendPosts(posts) {
-    elements.postsList.insertAdjacentHTML('beforeend', posts.map(renderPostCard).join(''));
-}
-
-// 渲染单个文章卡片
-function renderPostCard(post) {
-    const authorAvatar = post.author?.avatar || getDefaultAvatar(post.author?.name || '匿名');
-    const coverImage = post.coverImage || getDefaultCover(post.title);
+function renderEntry(post) {
     const tags = post.tags || [];
-    
+    const bits = [];
+    if (post.category) {
+        bits.push(`<a href="index.html?category=${encodeURIComponent(post.categoryId)}">${escapeHtml(post.category)}</a>`);
+    }
+    if (post.readTime) bits.push(`${post.readTime} 分钟`);
+    tags.slice(0, 3).forEach((name) => {
+        const found = state.tags.find((tag) => tag.name === name);
+        bits.push(found
+            ? `<a href="index.html?tag=${found.id}">${escapeHtml(name)}</a>`
+            : escapeHtml(name));
+    });
+
     return `
-        <article class="post-card">
-            <div class="cover">
-                <a href="post.html?slug=${post.slug}">
-                    <img src="${coverImage}" alt="${escapeHtml(post.title)}">
-                </a>
-            </div>
-            <div class="content">
-                <a href="categories.html?id=${post.categoryId}" class="category">
-                    <i class="ri-folder-line"></i> ${escapeHtml(post.category)}
-                </a>
-                <a href="post.html?slug=${post.slug}">
-                    <h3>${escapeHtml(post.title)}</h3>
-                </a>
-                <p class="excerpt">${escapeHtml(post.excerpt || '')}</p>
-                <div class="tags">
-                    ${tags.slice(0, 3).map(tag => `
-                        <a href="index.html?tag=${encodeURIComponent(tag)}" class="tag">${escapeHtml(tag)}</a>
-                    `).join('')}
-                </div>
-                <div class="footer">
-                    <a href="author.html?id=${post.author?.id}" class="author">
-                        <img src="${authorAvatar}" alt="${escapeHtml(post.author?.name || '匿名')}">
-                        <div class="author-info">
-                            <span class="author-name">${escapeHtml(post.author?.name || '匿名')}</span>
-                            <span class="post-date">${formatDate(post.createdAt)}</span>
-                        </div>
-                    </a>
-                    <div class="stats">
-                        <span class="stat"><i class="ri-eye-line"></i> ${formatNumber(post.views)}</span>
-                        <span class="stat"><i class="ri-heart-line"></i> ${formatNumber(post.likeCount || 0)}</span>
-                        <span class="stat"><i class="ri-time-line"></i> ${post.readTime}分钟</span>
-                    </div>
-                </div>
+        <article class="entry">
+            <time datetime="${escapeHtml(post.createdAt || '')}">${formatLongDate(post.createdAt)}</time>
+            <div>
+                <h2><a href="post.html?slug=${encodeURIComponent(post.slug)}">${escapeHtml(post.title)}</a></h2>
+                ${post.excerpt ? `<p class="excerpt">${escapeHtml(toPlain(post.excerpt))}</p>` : ''}
+                ${bits.length ? `<div class="entry-meta">${bits.join(' · ')}</div>` : ''}
             </div>
         </article>
     `;
-}
-
-// 更新加载更多按钮
-function updateLoadMoreButton() {
-    if (state.currentPage >= state.totalPages) {
-        elements.loadMoreBtn.textContent = '没有更多了';
-        elements.loadMoreBtn.disabled = true;
-    } else {
-        elements.loadMoreBtn.innerHTML = '<i class="ri-refresh-line"></i> 加载更多';
-        elements.loadMoreBtn.disabled = false;
-    }
-}
-
-// 加载更多文章
-function loadMorePosts() {
-    if (state.currentPage < state.totalPages) {
-        state.currentPage++;
-        loadPosts(true);
-    }
-}
-
-// ========== 分类和标签 ==========
-
-// 加载分类
-async function loadCategories() {
-    try {
-        const res = await categoryAPI.getAll();
-        if (res.code === 200) {
-            state.categories = res.data;
-            renderCategories(res.data);
-        }
-    } catch (error) {
-        console.error('加载分类失败:', error);
-    }
-}
-
-// 渲染分类
-function renderCategories(categories) {
-    elements.categoryList.innerHTML = categories.map(cat => `
-        <li>
-            <a href="index.html?category=${cat.id}" class="${state.categoryId == cat.id ? 'active' : ''}">
-                <span>${escapeHtml(cat.name)}</span>
-                <span class="count">${cat.count || 0}</span>
-            </a>
-        </li>
-    `).join('');
-}
-
-// 加载标签
-async function loadTags() {
-    try {
-        const res = await tagAPI.getAll();
-        if (res.code === 200) {
-            state.tags = res.data;
-            renderTags(res.data.slice(0, 15)); // 只显示前15个
-        }
-    } catch (error) {
-        console.error('加载标签失败:', error);
-    }
-}
-
-// 渲染标签云
-function renderTags(tags) {
-    elements.tagCloud.innerHTML = tags.map(tag => `
-        <a href="index.html?tag=${tag.id}">${escapeHtml(tag.name)}</a>
-    `).join('');
-}
-
-// 加载热门文章
-async function loadHotPosts() {
-    try {
-        const res = await postAPI.getList({ sortBy: 'views', order: 'desc', limit: 5, status: 'published' });
-        if (res.code === 200) {
-            renderHotPosts(res.data.records);
-        }
-    } catch (error) {
-        console.error('加载热门文章失败:', error);
-    }
-}
-
-// 渲染热门文章
-function renderHotPosts(posts) {
-    elements.hotPosts.innerHTML = posts.map((post, index) => `
-        <li>
-            <a href="post.html?slug=${post.slug}">
-                <span class="rank">${index + 1}</span>
-                <span class="title">${escapeHtml(post.title)}</span>
-            </a>
-        </li>
-    `).join('');
-}
-
-// ========== 事件处理 ==========
-
-// 切换主题
-function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute('data-theme');
-    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
-    updateThemeIcon(newTheme);
-}
-
-// 处理搜索
-function handleSearch(e) {
-    state.keyword = e.target.value.trim();
-    state.currentPage = 1;
-    updateUrlParams({ keyword: state.keyword });
-    loadPosts();
-}
-
-// 处理筛选变化
-function handleFilterChange(e) {
-    const tab = e.target;
-    const sortBy = tab.dataset.sort;
-    
-    // 更新激活状态
-    document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    
-    // 更新状态并重新加载
-    state.sortBy = sortBy;
-    state.currentPage = 1;
-    loadPosts();
-}
-
-// 处理滚动
-function handleScroll() {
-    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-    
-    // 回到顶部按钮
-    if (scrollTop > 300) {
-        elements.backToTop.classList.add('visible');
-    } else {
-        elements.backToTop.classList.remove('visible');
-    }
 }
