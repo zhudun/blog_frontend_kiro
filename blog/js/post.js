@@ -1,568 +1,156 @@
-/**
- * 文章详情页逻辑
- */
+document.addEventListener('DOMContentLoaded', async () => {
+    mountFrame('home');
+    const slug = getUrlParams().slug;
+    const root = document.getElementById('post');
 
-// 状态
-const postState = {
-    post: null,
-    comments: [],
-    commentPage: 1,
-    commentPages: 1,
-    liked: false,
-    favorited: false,
-    replyTo: null
-};
-
-// DOM 元素
-const postElements = {
-    postArticle: document.getElementById('postArticle'),
-    commentsList: document.getElementById('commentsList'),
-    commentInput: document.getElementById('commentInput'),
-    commentAvatar: document.getElementById('commentAvatar'),
-    submitComment: document.getElementById('submitComment'),
-    charCount: document.getElementById('charCount'),
-    commentCount: document.getElementById('commentCount'),
-    likeBtn: document.getElementById('likeBtn'),
-    likeCount: document.getElementById('likeCount'),
-    favoriteBtn: document.getElementById('favoriteBtn'),
-    shareBtn: document.getElementById('shareBtn'),
-    commentBtn: document.getElementById('commentBtn'),
-    backToTopBtn: document.getElementById('backToTopBtn'),
-    loadMoreCommentsBtn: document.getElementById('loadMoreCommentsBtn'),
-    themeToggle: document.getElementById('themeToggle'),
-    authButtons: document.getElementById('authButtons'),
-    userMenu: document.getElementById('userMenu'),
-    userAvatar: document.getElementById('userAvatar'),
-    logoutBtn: document.getElementById('logoutBtn')
-};
-
-// 初始化
-document.addEventListener('DOMContentLoaded', () => {
-    initTheme();
-    initAuth();
-    initEventListeners();
-    loadPost();
-});
-
-// 初始化主题
-function initTheme() {
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', savedTheme);
-    updateThemeIcon(savedTheme);
-}
-
-function updateThemeIcon(theme) {
-    const icon = postElements.themeToggle.querySelector('i');
-    icon.className = theme === 'dark' ? 'ri-sun-line' : 'ri-moon-line';
-}
-
-// 初始化认证状态
-function initAuth() {
-    const user = api.getUser();
-    if (user) {
-        postElements.authButtons.style.display = 'none';
-        postElements.userMenu.style.display = 'block';
-        postElements.userAvatar.src = user.avatar || getDefaultAvatar(user.name);
-        postElements.commentAvatar.src = user.avatar || getDefaultAvatar(user.name);
-    } else {
-        postElements.authButtons.style.display = 'flex';
-        postElements.userMenu.style.display = 'none';
-        postElements.commentAvatar.src = getDefaultAvatar('游客');
-    }
-}
-
-// 初始化事件监听
-function initEventListeners() {
-    // 主题切换
-    postElements.themeToggle.addEventListener('click', toggleTheme);
-    
-    // 评论字数统计
-    postElements.commentInput.addEventListener('input', updateCharCount);
-    
-    // 提交评论
-    postElements.submitComment.addEventListener('click', submitComment);
-    
-    // 点赞
-    postElements.likeBtn.addEventListener('click', toggleLike);
-    
-    // 收藏
-    postElements.favoriteBtn.addEventListener('click', toggleFavorite);
-    
-    // 分享
-    postElements.shareBtn.addEventListener('click', sharePost);
-    
-    // 跳转评论
-    postElements.commentBtn.addEventListener('click', () => {
-        document.getElementById('commentsSection').scrollIntoView({ behavior: 'smooth' });
-    });
-    
-    // 回到顶部
-    postElements.backToTopBtn.addEventListener('click', scrollToTop);
-    
-    // 加载更多评论
-    if (postElements.loadMoreCommentsBtn) {
-        postElements.loadMoreCommentsBtn.addEventListener('click', loadMoreComments);
-    }
-    
-    // 退出登录
-    if (postElements.logoutBtn) {
-        postElements.logoutBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            authAPI.logout();
-        });
-    }
-}
-
-// 切换主题
-function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute('data-theme');
-    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
-    updateThemeIcon(newTheme);
-}
-
-// 加载文章
-async function loadPost() {
-    const params = getUrlParams();
-    const slug = params.slug;
-    
     if (!slug) {
-        postElements.postArticle.innerHTML = `
-            <div class="empty-state">
-                <i class="ri-error-warning-line"></i>
-                <h3>文章不存在</h3>
-                <p><a href="index.html">返回首页</a></p>
-            </div>
-        `;
+        root.innerHTML = emptyPost('没有找到这篇文章。');
         return;
     }
-    
-    postElements.postArticle.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-    
+
+    root.innerHTML = '<p class="feed-status">加载中...</p>';
+
     try {
         const res = await postAPI.getDetail(slug);
-        
-        if (res.code === 200) {
-            postState.post = res.data;
-            renderPost(res.data);
-            document.title = `${res.data.title} - MyBlog`;
-            
-            // 加载用户操作状态
-            if (isLoggedIn()) {
-                loadUserActions(res.data.id);
-            }
-            
-            // 加载评论
-            loadComments(res.data.id);
-        } else {
-            postElements.postArticle.innerHTML = `
-                <div class="empty-state">
-                    <i class="ri-error-warning-line"></i>
-                    <h3>文章不存在</h3>
-                    <p><a href="index.html">返回首页</a></p>
-                </div>
-            `;
+        if (res.code !== 200 || !res.data) {
+            root.innerHTML = emptyPost('没有找到这篇文章。');
+            return;
         }
+        renderPost(res.data);
     } catch (error) {
-        console.error('加载文章失败:', error);
-        postElements.postArticle.innerHTML = `
-            <div class="empty-state">
-                <i class="ri-error-warning-line"></i>
-                <h3>加载失败</h3>
-                <p>请稍后重试</p>
-            </div>
-        `;
-    }
-}
-
-// 渲染文章
-function renderPost(post) {
-    const authorAvatar = post.author?.avatar || getDefaultAvatar(post.author?.name || '匿名');
-    const coverImage = post.coverImage || getDefaultCover(post.title);
-    const tags = post.tags || [];
-    
-    postElements.postArticle.innerHTML = `
-        <header class="post-header">
-            <a href="categories.html?id=${post.categoryId}" class="category">
-                <i class="ri-folder-line"></i> ${escapeHtml(post.category)}
-            </a>
-            <h1>${escapeHtml(post.title)}</h1>
-            <div class="post-meta">
-                <a href="author.html?id=${post.author?.id}" class="author">
-                    <img src="${authorAvatar}" alt="${escapeHtml(post.author?.name || '匿名')}">
-                    <span class="author-name">${escapeHtml(post.author?.name || '匿名')}</span>
-                </a>
-                <span class="meta-item">
-                    <i class="ri-calendar-line"></i> ${formatDate(post.createdAt)}
-                </span>
-                <span class="meta-item">
-                    <i class="ri-eye-line"></i> ${formatNumber(post.views)} 阅读
-                </span>
-                <span class="meta-item">
-                    <i class="ri-time-line"></i> ${post.readTime} 分钟
-                </span>
-            </div>
-            <div class="post-tags">
-                ${tags.map(tag => `<a href="index.html?tag=${encodeURIComponent(tag)}">${escapeHtml(tag)}</a>`).join('')}
-            </div>
-        </header>
-        
-        <div class="post-cover">
-            <img src="${coverImage}" alt="${escapeHtml(post.title)}">
-        </div>
-        
-        <div class="post-content">
-            ${parseMarkdown(post.content)}
-        </div>
-        
-        <div class="author-card">
-            <img src="${authorAvatar}" alt="${escapeHtml(post.author?.name || '匿名')}">
-            <div class="info">
-                <div class="name">${escapeHtml(post.author?.name || '匿名')}</div>
-                <div class="bio">${escapeHtml(post.author?.bio || '这个人很懒，什么都没写')}</div>
-                <button class="btn btn-primary follow-btn" onclick="followAuthor(${post.author?.id})">
-                    <i class="ri-user-add-line"></i> 关注
-                </button>
-            </div>
-        </div>
-    `;
-    
-    // 更新点赞数
-    postElements.likeCount.textContent = formatNumber(post.likeCount || 0);
-    
-    // 渲染数学公式
-    if (typeof renderMathInElement !== 'undefined') {
-        renderMathInElement(document.querySelector('.post-content'), {
-            delimiters: [
-                {left: '$$', right: '$$', display: true},
-                {left: '$', right: '$', display: false},
-                {left: '\\[', right: '\\]', display: true},
-                {left: '\\(', right: '\\)', display: false}
-            ],
-            throwOnError: false
-        });
-    }
-}
-
-// 加载用户操作状态
-async function loadUserActions(postId) {
-    try {
-        const [actionsRes, favoriteRes] = await Promise.all([
-            postAPI.getUserActions(postId),
-            favoriteAPI.check(postId)
-        ]);
-        
-        if (actionsRes.code === 200) {
-            postState.liked = actionsRes.data.liked;
-            postElements.likeCount.textContent = formatNumber(actionsRes.data.likeCount);
-            if (postState.liked) {
-                postElements.likeBtn.classList.add('active');
-                postElements.likeBtn.querySelector('i').className = 'ri-heart-fill';
-            }
-        }
-        
-        if (favoriteRes.code === 200) {
-            postState.favorited = favoriteRes.data.favorited;
-            if (postState.favorited) {
-                postElements.favoriteBtn.classList.add('active');
-                postElements.favoriteBtn.querySelector('i').className = 'ri-bookmark-fill';
-            }
-        }
-    } catch (error) {
-        console.error('加载用户操作状态失败:', error);
-    }
-}
-
-// 点赞切换
-async function toggleLike() {
-    if (!requireLogin()) return;
-    
-    try {
-        let res;
-        if (postState.liked) {
-            res = await postAPI.unlike(postState.post.id);
-        } else {
-            res = await postAPI.like(postState.post.id);
-        }
-        
-        if (res.code === 200) {
-            postState.liked = res.data.liked;
-            postElements.likeCount.textContent = formatNumber(res.data.likeCount);
-            
-            if (postState.liked) {
-                postElements.likeBtn.classList.add('active');
-                postElements.likeBtn.querySelector('i').className = 'ri-heart-fill';
-                showToast('点赞成功', 'success');
-            } else {
-                postElements.likeBtn.classList.remove('active');
-                postElements.likeBtn.querySelector('i').className = 'ri-heart-line';
-            }
-        }
-    } catch (error) {
-        showToast('操作失败', 'error');
-    }
-}
-
-// 收藏切换
-async function toggleFavorite() {
-    if (!requireLogin()) return;
-    
-    try {
-        let res;
-        if (postState.favorited) {
-            res = await favoriteAPI.remove(postState.post.id);
-        } else {
-            res = await favoriteAPI.add(postState.post.id);
-        }
-        
-        if (res.code === 200) {
-            postState.favorited = !postState.favorited;
-            
-            if (postState.favorited) {
-                postElements.favoriteBtn.classList.add('active');
-                postElements.favoriteBtn.querySelector('i').className = 'ri-bookmark-fill';
-                showToast('收藏成功', 'success');
-            } else {
-                postElements.favoriteBtn.classList.remove('active');
-                postElements.favoriteBtn.querySelector('i').className = 'ri-bookmark-line';
-                showToast('已取消收藏', 'info');
-            }
-        }
-    } catch (error) {
-        showToast('操作失败', 'error');
-    }
-}
-
-// 分享文章
-function sharePost() {
-    const url = window.location.href;
-    copyToClipboard(url);
-    showToast('链接已复制到剪贴板', 'success');
-}
-
-// 关注作者
-async function followAuthor(authorId) {
-    if (!requireLogin()) return;
-    
-    try {
-        const res = await followAPI.add(authorId);
-        if (res.code === 200) {
-            showToast('关注成功', 'success');
-        }
-    } catch (error) {
-        showToast('操作失败', 'error');
-    }
-}
-
-// ========== 评论相关 ==========
-
-// 加载评论
-async function loadComments(postId, append = false) {
-    try {
-        const res = await commentAPI.getByPost(postId, {
-            page: postState.commentPage,
-            limit: 10
-        });
-        
-        if (res.code === 200) {
-            const { comments, pagination } = res.data;
-            postState.commentPages = pagination.pages;
-            
-            postElements.commentCount.textContent = `(${pagination.total})`;
-            
-            if (append) {
-                postState.comments = [...postState.comments, ...comments];
-                appendComments(comments);
-            } else {
-                postState.comments = comments;
-                renderComments(comments);
-            }
-            
-            // 更新加载更多按钮
-            const loadMoreDiv = document.getElementById('loadMoreComments');
-            if (postState.commentPage >= postState.commentPages) {
-                loadMoreDiv.style.display = 'none';
-            } else {
-                loadMoreDiv.style.display = 'block';
-            }
-        }
-    } catch (error) {
-        console.error('加载评论失败:', error);
-    }
-}
-
-// 渲染评论列表
-function renderComments(comments) {
-    if (comments.length === 0) {
-        postElements.commentsList.innerHTML = `
-            <div class="empty-state">
-                <i class="ri-chat-3-line"></i>
-                <h3>暂无评论</h3>
-                <p>快来发表第一条评论吧</p>
-            </div>
-        `;
-        return;
-    }
-    
-    postElements.commentsList.innerHTML = comments.map(renderCommentItem).join('');
-}
-
-// 追加评论
-function appendComments(comments) {
-    postElements.commentsList.insertAdjacentHTML('beforeend', comments.map(renderCommentItem).join(''));
-}
-
-// 渲染单个评论
-function renderCommentItem(comment) {
-    const avatar = comment.user?.avatar || getDefaultAvatar(comment.user?.name || '匿名');
-    const replies = comment.replies || [];
-    
-    return `
-        <div class="comment-item" data-id="${comment.id}">
-            <div class="comment-header">
-                <img src="${avatar}" alt="${escapeHtml(comment.user?.name || '匿名')}">
-                <div class="user-info">
-                    <span class="username">${escapeHtml(comment.user?.name || '匿名')}</span>
-                    <span class="time">${formatDate(comment.createdAt)}</span>
-                </div>
-            </div>
-            <div class="comment-content">${escapeHtml(comment.content)}</div>
-            <div class="comment-footer">
-                <button class="like-comment-btn" data-id="${comment.id}" data-liked="false">
-                    <i class="ri-heart-line"></i> <span>${comment.likes || 0}</span>
-                </button>
-                <button class="reply-btn" data-id="${comment.id}" data-name="${escapeHtml(comment.user?.name || '匿名')}">
-                    <i class="ri-reply-line"></i> 回复
-                </button>
-            </div>
-            ${replies.length > 0 ? `
-                <div class="comment-replies">
-                    ${replies.map(reply => renderReplyItem(reply)).join('')}
-                </div>
-            ` : ''}
-        </div>
-    `;
-}
-
-// 渲染回复
-function renderReplyItem(reply) {
-    const avatar = reply.user?.avatar || getDefaultAvatar(reply.user?.name || '匿名');
-    
-    return `
-        <div class="reply-item" data-id="${reply.id}">
-            <div class="comment-header">
-                <img src="${avatar}" alt="${escapeHtml(reply.user?.name || '匿名')}">
-                <div class="user-info">
-                    <span class="username">${escapeHtml(reply.user?.name || '匿名')}</span>
-                    <span class="time">${formatDate(reply.createdAt)}</span>
-                </div>
-            </div>
-            <div class="comment-content">${escapeHtml(reply.content)}</div>
-            <div class="comment-footer">
-                <button class="like-comment-btn" data-id="${reply.id}" data-liked="false">
-                    <i class="ri-heart-line"></i> <span>${reply.likes || 0}</span>
-                </button>
-            </div>
-        </div>
-    `;
-}
-
-// 更新字数统计
-function updateCharCount() {
-    const count = postElements.commentInput.value.length;
-    postElements.charCount.textContent = count;
-    
-    if (count > 500) {
-        postElements.charCount.style.color = 'var(--danger)';
-    } else {
-        postElements.charCount.style.color = '';
-    }
-}
-
-// 提交评论
-async function submitComment() {
-    if (!requireLogin()) return;
-    
-    const content = postElements.commentInput.value.trim();
-    
-    if (!content) {
-        showToast('请输入评论内容', 'warning');
-        return;
-    }
-    
-    if (content.length > 500) {
-        showToast('评论内容不能超过500字', 'warning');
-        return;
-    }
-    
-    try {
-        const res = await commentAPI.create(postState.post.id, {
-            content,
-            parentId: postState.replyTo
-        });
-        
-        if (res.code === 200) {
-            showToast('评论发表成功', 'success');
-            postElements.commentInput.value = '';
-            postElements.charCount.textContent = '0';
-            postState.replyTo = null;
-            
-            // 重新加载评论
-            postState.commentPage = 1;
-            loadComments(postState.post.id);
-        } else {
-            showToast(res.message || '评论失败', 'error');
-        }
-    } catch (error) {
-        showToast('评论失败', 'error');
-    }
-}
-
-// 加载更多评论
-function loadMoreComments() {
-    if (postState.commentPage < postState.commentPages) {
-        postState.commentPage++;
-        loadComments(postState.post.id, true);
-    }
-}
-
-// 评论点赞（事件委托）
-document.addEventListener('click', async (e) => {
-    const likeBtn = e.target.closest('.like-comment-btn');
-    if (likeBtn) {
-        if (!requireLogin()) return;
-        
-        const commentId = likeBtn.dataset.id;
-        try {
-            const res = await commentAPI.like(commentId);
-            if (res.code === 200) {
-                const span = likeBtn.querySelector('span');
-                span.textContent = res.data.likes;
-                
-                if (res.data.isLiked) {
-                    likeBtn.classList.add('active');
-                    likeBtn.querySelector('i').className = 'ri-heart-fill';
-                } else {
-                    likeBtn.classList.remove('active');
-                    likeBtn.querySelector('i').className = 'ri-heart-line';
-                }
-            }
-        } catch (error) {
-            showToast('操作失败', 'error');
-        }
-    }
-    
-    // 回复按钮
-    const replyBtn = e.target.closest('.reply-btn');
-    if (replyBtn) {
-        if (!requireLogin()) return;
-        
-        const commentId = replyBtn.dataset.id;
-        const userName = replyBtn.dataset.name;
-        
-        postState.replyTo = commentId;
-        postElements.commentInput.placeholder = `回复 @${userName}...`;
-        postElements.commentInput.focus();
+        root.innerHTML = emptyPost('文章暂时没有加载出来。');
     }
 });
+
+function emptyPost(message) {
+    return `<p class="feed-status">${escapeHtml(message)} <a href="index.html">回首页</a></p>`;
+}
+
+async function renderPost(post) {
+    const user = api.getUser();
+    const isOwner = user && post.author && String(user.id) === String(post.author.id);
+    const tags = post.tags || [];
+    const tagIds = {};
+    try {
+        const tagRes = await tagAPI.getAll();
+        if (tagRes.code === 200 && Array.isArray(tagRes.data)) {
+            tagRes.data.forEach((tag) => { tagIds[tag.name] = tag.id; });
+        }
+    } catch (error) {
+        console.error(error);
+    }
+    document.title = `${post.title} - ${SITE.name}`;
+
+    const header = document.getElementById('page-header');
+    if (header && post.coverImage) {
+        header.style.backgroundImage = `url("${String(post.coverImage).replace(/"/g, '')}")`;
+    }
+    const title = document.getElementById('post-title');
+    if (title) title.textContent = post.title;
+    const meta = document.getElementById('post-meta');
+    if (meta) {
+        meta.innerHTML = `
+            <span class="post-meta-date">
+                <i class="far fa-calendar-alt"></i>
+                <span class="article-meta-label">发表于</span>
+                <time>${formatDashDate(post.createdAt)}</time>
+                <span class="article-meta-separator">|</span>
+                <i class="fas fa-history"></i>
+                <span class="article-meta-label">更新于</span>
+                <time>${formatDashDate(post.updatedAt || post.createdAt)}</time>
+            </span>
+            ${post.category ? `<span class="article-meta"><span class="article-meta-separator">|</span><i class="fas fa-inbox"></i><a href="index.html?category=${encodeURIComponent(post.categoryId)}">${escapeHtml(post.category)}</a></span>` : ''}
+            ${post.readTime ? `<span class="article-meta"><span class="article-meta-separator">|</span><i class="far fa-clock"></i> ${post.readTime} 分钟</span>` : ''}
+            ${post.views ? `<span class="article-meta"><span class="article-meta-separator">|</span><i class="far fa-eye"></i> ${post.views}</span>` : ''}
+            ${post.status === 'draft' ? '<span class="article-meta"><span class="article-meta-separator">|</span>草稿</span>' : ''}
+        `;
+    }
+
+    const tagHtml = tags.map((name) => {
+        const href = tagIds[name] ? `index.html?tag=${tagIds[name]}` : 'tags.html';
+        return `<a class="post-tag" href="${href}">${escapeHtml(name)}</a>`;
+    }).join('');
+    document.getElementById('post').innerHTML = `
+        <div id="article-container">${parseMarkdown(post.content || post.excerpt || '')}</div>
+        <div class="post-copyright">
+            <div class="post-copyright-meta"><span class="post-copyright-info"><i class="fas fa-user-circle"></i>文章作者:</span><span class="post-copyright-info-value">${escapeHtml(post.author?.name || SITE.name)}</span></div>
+            <div class="post-copyright-meta"><span class="post-copyright-info"><i class="fas fa-link"></i>文章链接:</span><span class="post-copyright-info-value"><a href="${location.href}">${escapeHtml(location.href)}</a></span></div>
+            <div class="post-copyright-meta"><span class="post-copyright-info"><i class="fas fa-copyright"></i>版权声明:</span><span class="post-copyright-info-value">本博客所有文章除特别声明外，均采用 CC BY-NC-SA 4.0 许可协议。转载请注明来源。</span></div>
+        </div>
+        ${tags.length ? `<div class="tag_share"><div class="post-meta__tags">${tagHtml}</div></div>` : ''}
+        <div class="post-actions">
+            <button type="button" class="text-btn" id="copyLink"><i class="fas fa-share-alt"></i> 复制链接</button>
+            ${isOwner ? `<a href="write.html?slug=${encodeURIComponent(post.slug)}"><i class="fas fa-pen"></i> 编辑</a>` : ''}
+            ${isOwner ? `<button type="button" class="text-btn" id="deletePost"><i class="fas fa-trash-alt"></i> 删除</button>` : ''}
+        </div>
+    `;
+
+    renderMath(document.getElementById('article-container'));
+    renderToc();
+
+    document.getElementById('copyLink').addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(window.location.href);
+            showToast('链接已复制');
+        } catch (error) {
+            showToast('复制失败', 'error');
+        }
+    });
+
+    const deleteBtn = document.getElementById('deletePost');
+    if (deleteBtn) {
+        deleteBtn.addEventListener('click', async () => {
+            if (!window.confirm('删除这篇文章？')) return;
+            const res = await postAPI.delete(post.id);
+            if (res.code === 200) {
+                showToast('已删除');
+                setTimeout(() => { window.location.href = 'index.html'; }, 500);
+            }
+        });
+    }
+}
+
+function renderToc() {
+    const article = document.getElementById('article-container');
+    const aside = document.getElementById('aside-content');
+    if (!article || !aside) return;
+    const headings = [...article.querySelectorAll('h1, h2, h3')];
+    headings.forEach((heading, index) => {
+        if (!heading.id) heading.id = `heading-${index}`;
+    });
+    const toc = headings.length
+        ? headings.map((heading) => `
+            <div class="toc-item toc-${heading.tagName.toLowerCase()}">
+                <a class="toc-link" href="#${heading.id}">${heading.textContent}</a>
+            </div>
+        `).join('')
+        : '<p class="feed-status">这篇文章没有目录。</p>';
+
+    aside.innerHTML = `
+        <div class="sticky_layout">
+            <div class="card-widget" id="card-toc">
+                <div class="item-headline"><i class="fas fa-list-ul"></i><span>目录</span></div>
+                <div class="toc-content">${toc}</div>
+            </div>
+            <div class="card-widget card-info text-center">
+                <div class="avatar-img"><span>札</span></div>
+                <div class="author-info-name">${escapeHtml(SITE.name)}</div>
+                <div class="author-info-description">${escapeHtml(SITE.description)}</div>
+                <a id="card-info-btn" target="_blank" rel="noopener" href="${SITE.github}"><i class="fab fa-github"></i><span>GitHub</span></a>
+            </div>
+        </div>
+    `;
+
+    const links = [...aside.querySelectorAll('.toc-link')];
+    if (!links.length) return;
+    const map = new Map(headings.map((heading, index) => [heading.id, links[index]]));
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            links.forEach((link) => link.classList.remove('active'));
+            const link = map.get(entry.target.id);
+            if (link) link.classList.add('active');
+        });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+    headings.forEach((heading) => observer.observe(heading));
+}

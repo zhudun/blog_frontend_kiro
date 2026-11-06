@@ -1,407 +1,330 @@
-/**
- * 主应用逻辑
- */
-
-// 全局状态
 const state = {
-    posts: [],
-    categories: [],
-    tags: [],
     currentPage: 1,
     totalPages: 1,
-    sortBy: 'createdAt',
-    order: 'desc',
+    totalPosts: 0,
     keyword: '',
     categoryId: null,
     tagId: null,
-    loading: false
+    mine: '',
+    loading: false,
+    categories: [],
+    tags: [],
+    latest: []
 };
 
-// DOM 元素
-const elements = {
-    featuredPosts: document.getElementById('featuredPosts'),
-    postsList: document.getElementById('postsList'),
-    categoryList: document.getElementById('categoryList'),
-    tagCloud: document.getElementById('tagCloud'),
-    hotPosts: document.getElementById('hotPosts'),
-    loadMoreBtn: document.getElementById('loadMoreBtn'),
-    searchInput: document.getElementById('searchInput'),
-    themeToggle: document.getElementById('themeToggle'),
-    backToTop: document.getElementById('backToTop'),
-    authButtons: document.getElementById('authButtons'),
-    userMenu: document.getElementById('userMenu'),
-    userAvatar: document.getElementById('userAvatar'),
-    logoutBtn: document.getElementById('logoutBtn')
-};
+document.addEventListener('DOMContentLoaded', async () => {
+    mountFrame('home');
+    document.title = SITE.name;
+    const siteTitle = document.getElementById('site-title');
+    if (siteTitle) siteTitle.textContent = SITE.name;
 
-// ========== 初始化 ==========
-document.addEventListener('DOMContentLoaded', () => {
-    initTheme();
-    initAuth();
-    initEventListeners();
-    loadInitialData();
+    const params = getUrlParams();
+    state.categoryId = params.category || null;
+    state.tagId = params.tag || null;
+    state.keyword = params.keyword || '';
+    state.mine = params.mine || '';
+    state.currentPage = Math.max(1, Number(params.page) || 1);
+
+    if (state.mine === 'drafts' && !isLoggedIn()) {
+        window.location.href = 'login.html?next=' + encodeURIComponent('index.html?mine=drafts');
+        return;
+    }
+
+    window.addEventListener('popstate', () => window.location.reload());
+
+    await Promise.all([loadCategories(), loadTags(), loadLatest()]);
+    await loadPosts();
+    renderAside();
 });
 
-// 初始化主题
-function initTheme() {
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', savedTheme);
-    updateThemeIcon(savedTheme);
-}
-
-// 更新主题图标
-function updateThemeIcon(theme) {
-    const icon = elements.themeToggle.querySelector('i');
-    icon.className = theme === 'dark' ? 'ri-sun-line' : 'ri-moon-line';
-}
-
-// 初始化认证状态
-function initAuth() {
-    const user = api.getUser();
-    if (user) {
-        elements.authButtons.style.display = 'none';
-        elements.userMenu.style.display = 'block';
-        elements.userAvatar.src = user.avatar || getDefaultAvatar(user.name);
-    } else {
-        elements.authButtons.style.display = 'flex';
-        elements.userMenu.style.display = 'none';
-    }
-}
-
-// 初始化事件监听
-function initEventListeners() {
-    // 主题切换
-    elements.themeToggle.addEventListener('click', toggleTheme);
-    
-    // 搜索
-    elements.searchInput.addEventListener('input', debounce(handleSearch, 500));
-    
-    // 加载更多
-    elements.loadMoreBtn.addEventListener('click', loadMorePosts);
-    
-    // 筛选标签
-    document.querySelectorAll('.filter-tab').forEach(tab => {
-        tab.addEventListener('click', handleFilterChange);
-    });
-    
-    // 回到顶部
-    window.addEventListener('scroll', throttle(handleScroll, 100));
-    elements.backToTop.addEventListener('click', scrollToTop);
-    
-    // 退出登录
-    if (elements.logoutBtn) {
-        elements.logoutBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            authAPI.logout();
-        });
-    }
-}
-
-// 加载初始数据
-async function loadInitialData() {
-    // 获取 URL 参数
-    const params = getUrlParams();
-    if (params.category) state.categoryId = params.category;
-    if (params.tag) state.tagId = params.tag;
-    if (params.keyword) {
-        state.keyword = params.keyword;
-        elements.searchInput.value = params.keyword;
-    }
-    
-    // 并行加载数据
-    await Promise.all([
-        loadFeaturedPosts(),
-        loadPosts(),
-        loadCategories(),
-        loadTags(),
-        loadHotPosts()
-    ]);
-}
-
-// ========== 文章相关 ==========
-
-// 加载精选文章
-async function loadFeaturedPosts() {
+async function loadLatest() {
     try {
-        const res = await postAPI.getList({ featured: true, limit: 3, status: 'published' });
-        if (res.code === 200 && res.data.records.length > 0) {
-            renderFeaturedPosts(res.data.records);
-        } else {
-            document.getElementById('featuredSection').style.display = 'none';
-        }
+        const res = await postAPI.getList({
+            page: 1,
+            limit: 5,
+            sortBy: 'createdAt',
+            order: 'desc',
+            status: 'published'
+        });
+        if (res.code === 200 && res.data) state.latest = res.data.records || [];
     } catch (error) {
-        console.error('加载精选文章失败:', error);
+        console.error(error);
     }
 }
 
-// 渲染精选文章
-function renderFeaturedPosts(posts) {
-    elements.featuredPosts.innerHTML = posts.map(post => `
-        <a href="post.html?slug=${post.slug}" class="featured-card">
-            <img src="${post.coverImage || getDefaultCover(post.title)}" alt="${escapeHtml(post.title)}">
-            <div class="overlay">
-                <span class="category-badge">${escapeHtml(post.category)}</span>
-                <h3>${escapeHtml(post.title)}</h3>
-                <div class="meta">
-                    <span><i class="ri-eye-line"></i> ${formatNumber(post.views)}</span>
-                    <span><i class="ri-time-line"></i> ${post.readTime}分钟</span>
-                    <span><i class="ri-calendar-line"></i> ${formatDate(post.createdAt)}</span>
-                </div>
-            </div>
-        </a>
-    `).join('');
+async function loadCategories() {
+    try {
+        const res = await categoryAPI.getAll();
+        if (res.code === 200 && Array.isArray(res.data)) state.categories = res.data;
+    } catch (error) {
+        console.error(error);
+    }
 }
 
-// 加载文章列表
-async function loadPosts(append = false) {
+async function loadTags() {
+    try {
+        const res = await tagAPI.getAll();
+        if (res.code === 200 && Array.isArray(res.data)) state.tags = res.data;
+    } catch (error) {
+        console.error(error);
+    }
+}
+
+function currentTagName() {
+    if (!state.tagId) return '';
+    const tag = state.tags.find((item) => String(item.id) === String(state.tagId));
+    return tag ? tag.name : '';
+}
+
+function renderNote() {
+    const note = document.getElementById('listNote');
+    if (!note) return;
+    const parts = [];
+    if (state.mine === 'drafts') parts.push('未发布的草稿');
+    const category = state.categories.find((item) => String(item.id) === String(state.categoryId));
+    if (category) parts.push(category.name);
+    const tagName = currentTagName();
+    if (tagName) parts.push(tagName);
+    if (state.keyword) parts.push(`搜索「${state.keyword}」`);
+    if (!parts.length) {
+        note.hidden = true;
+        note.innerHTML = '';
+        return;
+    }
+    note.hidden = false;
+    note.innerHTML = `<span>正在查看：${escapeHtml(parts.join(' · '))}</span> <button type="button" id="clearFilters">清除</button>`;
+    document.getElementById('clearFilters').addEventListener('click', () => {
+        state.categoryId = null;
+        state.tagId = null;
+        state.keyword = '';
+        state.mine = '';
+        state.currentPage = 1;
+        updateUrlParams({ category: '', tag: '', keyword: '', mine: '', page: '' });
+        loadPosts();
+    });
+}
+
+async function loadPosts() {
     if (state.loading) return;
     state.loading = true;
-    
-    if (!append) {
-        elements.postsList.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-    }
-    
+    const list = document.getElementById('postsList');
+    list.innerHTML = '<p class="feed-status">加载中...</p>';
+    renderNote();
+
     try {
         const params = {
             page: state.currentPage,
             limit: 10,
-            sortBy: state.sortBy,
-            order: state.order,
-            status: 'published'
+            sortBy: 'createdAt',
+            order: 'desc',
+            status: state.mine === 'drafts' ? 'draft' : 'published'
         };
-        
         if (state.keyword) params.keyword = state.keyword;
         if (state.categoryId) params.categoryId = state.categoryId;
         if (state.tagId) params.tagId = state.tagId;
-        
+
         const res = await postAPI.getList(params);
-        
-        if (res.code === 200) {
-            state.totalPages = res.data.pages;
-            
-            if (append) {
-                state.posts = [...state.posts, ...res.data.records];
-                appendPosts(res.data.records);
-            } else {
-                state.posts = res.data.records;
-                renderPosts(res.data.records);
-            }
-            
-            // 更新加载更多按钮状态
-            updateLoadMoreButton();
+        const records = res.code === 200 && res.data ? (res.data.records || []) : null;
+        if (!records) {
+            list.innerHTML = '<p class="feed-status">文章暂时没有加载出来。</p>';
+            return;
         }
+
+        state.totalPages = res.data.pages || 1;
+        state.totalPosts = res.data.total || records.length;
+        if (!records.length) {
+            list.innerHTML = `<p class="feed-status">${state.mine === 'drafts' ? '没有草稿。' : '还没有文章。'}</p>`;
+        } else {
+            list.innerHTML = records.map((post, index) => renderEntry(post, index)).join('');
+        }
+        renderPager();
+        setCounts(state.totalPosts, state.tags.length, state.categories.length);
     } catch (error) {
-        console.error('加载文章失败:', error);
-        elements.postsList.innerHTML = `
-            <div class="empty-state">
-                <i class="ri-error-warning-line"></i>
-                <h3>加载失败</h3>
-                <p>请稍后重试</p>
-            </div>
-        `;
+        list.innerHTML = '<p class="feed-status">文章暂时没有加载出来。</p>';
     } finally {
         state.loading = false;
     }
 }
 
-// 渲染文章列表
-function renderPosts(posts) {
-    if (posts.length === 0) {
-        elements.postsList.innerHTML = `
-            <div class="empty-state">
-                <i class="ri-article-line"></i>
-                <h3>暂无文章</h3>
-                <p>还没有发布任何文章</p>
-            </div>
-        `;
-        return;
+function tagLink(name) {
+    const found = state.tags.find((tag) => tag.name === name);
+    if (!found) return escapeHtml(name);
+    return `<a class="article-meta__tags" href="index.html?tag=${found.id}">${escapeHtml(name)}</a>`;
+}
+
+function coverHtml(post, side) {
+    const tone = coverTone(post.title);
+    if (post.coverImage) {
+        return `
+            <div class="post_cover ${side}">
+                <a href="post.html?slug=${encodeURIComponent(post.slug)}" title="${escapeHtml(post.title)}">
+                    <img class="post-bg" src="${escapeHtml(post.coverImage)}" alt="${escapeHtml(post.title)}">
+                </a>
+            </div>`;
     }
-    
-    elements.postsList.innerHTML = posts.map(renderPostCard).join('');
-}
-
-// 追加文章
-function appendPosts(posts) {
-    elements.postsList.insertAdjacentHTML('beforeend', posts.map(renderPostCard).join(''));
-}
-
-// 渲染单个文章卡片
-function renderPostCard(post) {
-    const authorAvatar = post.author?.avatar || getDefaultAvatar(post.author?.name || '匿名');
-    const coverImage = post.coverImage || getDefaultCover(post.title);
-    const tags = post.tags || [];
-    
     return `
-        <article class="post-card">
-            <div class="cover">
-                <a href="post.html?slug=${post.slug}">
-                    <img src="${coverImage}" alt="${escapeHtml(post.title)}">
+        <div class="post_cover ${side}">
+            <a href="post.html?slug=${encodeURIComponent(post.slug)}" title="${escapeHtml(post.title)}">
+                <span class="post-bg tone-${tone}"></span>
+            </a>
+        </div>`;
+}
+
+function renderEntry(post, index) {
+    const side = index % 2 === 0 ? 'left' : 'right';
+    const tags = post.tags || [];
+    const created = formatDashDate(post.createdAt);
+    const updated = formatDashDate(post.updatedAt || post.createdAt);
+    const excerpt = toPlain(post.excerpt || '');
+    const tagHtml = tags.map((name, i) => `
+        ${i ? '<span class="article-meta-link">•</span>' : ''}
+        <i class="fas fa-tag"></i>${tagLink(name)}
+    `).join('');
+
+    return `
+        <article class="recent-post-item">
+            ${coverHtml(post, side)}
+            <div class="recent-post-info">
+                <a class="article-title" href="post.html?slug=${encodeURIComponent(post.slug)}" title="${escapeHtml(post.title)}">
+                    ${post.featured ? '<i class="fas fa-thumbtack sticky"></i>' : ''}${escapeHtml(post.title)}
                 </a>
-            </div>
-            <div class="content">
-                <a href="categories.html?id=${post.categoryId}" class="category">
-                    <i class="ri-folder-line"></i> ${escapeHtml(post.category)}
-                </a>
-                <a href="post.html?slug=${post.slug}">
-                    <h3>${escapeHtml(post.title)}</h3>
-                </a>
-                <p class="excerpt">${escapeHtml(post.excerpt || '')}</p>
-                <div class="tags">
-                    ${tags.slice(0, 3).map(tag => `
-                        <a href="index.html?tag=${encodeURIComponent(tag)}" class="tag">${escapeHtml(tag)}</a>
-                    `).join('')}
+                <div class="article-meta-wrap">
+                    <span class="post-meta-date">
+                        <i class="far fa-calendar-alt"></i>
+                        <span class="article-meta-label">发表于</span>
+                        <time datetime="${escapeHtml(post.createdAt || '')}">${created}</time>
+                        <span class="article-meta-separator">|</span>
+                        <i class="fas fa-history"></i>
+                        <span class="article-meta-label">更新于</span>
+                        <time datetime="${escapeHtml(post.updatedAt || post.createdAt || '')}">${updated}</time>
+                    </span>
+                    ${post.category ? `
+                        <span class="article-meta">
+                            <span class="article-meta-separator">|</span>
+                            <i class="fas fa-inbox"></i>
+                            <a class="article-meta__categories" href="index.html?category=${encodeURIComponent(post.categoryId)}">${escapeHtml(post.category)}</a>
+                        </span>` : ''}
+                    ${tags.length ? `<span class="article-meta tags"><span class="article-meta-separator">|</span>${tagHtml}</span>` : ''}
                 </div>
-                <div class="footer">
-                    <a href="author.html?id=${post.author?.id}" class="author">
-                        <img src="${authorAvatar}" alt="${escapeHtml(post.author?.name || '匿名')}">
-                        <div class="author-info">
-                            <span class="author-name">${escapeHtml(post.author?.name || '匿名')}</span>
-                            <span class="post-date">${formatDate(post.createdAt)}</span>
-                        </div>
-                    </a>
-                    <div class="stats">
-                        <span class="stat"><i class="ri-eye-line"></i> ${formatNumber(post.views)}</span>
-                        <span class="stat"><i class="ri-heart-line"></i> ${formatNumber(post.likeCount || 0)}</span>
-                        <span class="stat"><i class="ri-time-line"></i> ${post.readTime}分钟</span>
-                    </div>
-                </div>
+                ${excerpt ? `<div class="content">${escapeHtml(excerpt)}</div>` : ''}
             </div>
         </article>
     `;
 }
 
-// 更新加载更多按钮
-function updateLoadMoreButton() {
-    if (state.currentPage >= state.totalPages) {
-        elements.loadMoreBtn.textContent = '没有更多了';
-        elements.loadMoreBtn.disabled = true;
-    } else {
-        elements.loadMoreBtn.innerHTML = '<i class="ri-refresh-line"></i> 加载更多';
-        elements.loadMoreBtn.disabled = false;
+function renderPager() {
+    const pager = document.getElementById('pager');
+    if (!pager) return;
+    if (state.totalPages <= 1) {
+        pager.innerHTML = '';
+        return;
     }
+    const current = state.currentPage;
+    const total = state.totalPages;
+    const pages = new Set([1, total, current - 1, current, current + 1]);
+    const list = [...pages].filter((n) => n >= 1 && n <= total).sort((a, b) => a - b);
+    let html = '';
+    let prev = 0;
+    list.forEach((n) => {
+        if (prev && n - prev > 1) html += '<span class="page-number space">…</span>';
+        html += n === current
+            ? `<span class="page-number current">${n}</span>`
+            : `<a class="page-number" href="#" data-page="${n}">${n}</a>`;
+        prev = n;
+    });
+    if (current < total) html += `<a class="extend next" href="#" data-page="${current + 1}"><i class="fas fa-chevron-right"></i></a>`;
+    pager.innerHTML = html;
+    pager.querySelectorAll('[data-page]').forEach((link) => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            state.currentPage = Number(link.dataset.page);
+            updateUrlParams({ page: state.currentPage > 1 ? state.currentPage : '' });
+            loadPosts();
+            const target = document.getElementById('content-inner');
+            if (target) target.scrollIntoView({ behavior: 'smooth' });
+        });
+    });
 }
 
-// 加载更多文章
-function loadMorePosts() {
-    if (state.currentPage < state.totalPages) {
-        state.currentPage++;
-        loadPosts(true);
+function thumb(post) {
+    if (post.coverImage) {
+        return `<img src="${escapeHtml(post.coverImage)}" alt="${escapeHtml(post.title)}">`;
     }
+    return `<span class="tone-${coverTone(post.title)}"></span>`;
 }
 
-// ========== 分类和标签 ==========
-
-// 加载分类
-async function loadCategories() {
-    try {
-        const res = await categoryAPI.getAll();
-        if (res.code === 200) {
-            state.categories = res.data;
-            renderCategories(res.data);
-        }
-    } catch (error) {
-        console.error('加载分类失败:', error);
-    }
-}
-
-// 渲染分类
-function renderCategories(categories) {
-    elements.categoryList.innerHTML = categories.map(cat => `
-        <li>
-            <a href="index.html?category=${cat.id}" class="${state.categoryId == cat.id ? 'active' : ''}">
-                <span>${escapeHtml(cat.name)}</span>
-                <span class="count">${cat.count || 0}</span>
+function renderAside() {
+    const aside = document.getElementById('aside-content');
+    if (!aside) return;
+    const latest = state.latest.length ? state.latest : [];
+    const cats = state.categories.map((cat) => `
+        <li class="card-category-list-item">
+            <a class="card-category-list-link" href="index.html?category=${cat.id}">
+                <span class="card-category-list-name">${escapeHtml(cat.name)}</span>
+                <span class="card-category-list-count">${cat.count || 0}</span>
             </a>
         </li>
     `).join('');
-}
-
-// 加载标签
-async function loadTags() {
-    try {
-        const res = await tagAPI.getAll();
-        if (res.code === 200) {
-            state.tags = res.data;
-            renderTags(res.data.slice(0, 15)); // 只显示前15个
-        }
-    } catch (error) {
-        console.error('加载标签失败:', error);
-    }
-}
-
-// 渲染标签云
-function renderTags(tags) {
-    elements.tagCloud.innerHTML = tags.map(tag => `
-        <a href="index.html?tag=${tag.id}">${escapeHtml(tag.name)}</a>
+    const tags = state.tags.slice(0, 24).map((tag) => `
+        <a class="aside-tag" href="index.html?tag=${tag.id}">${escapeHtml(tag.name)}</a>
     `).join('');
-}
-
-// 加载热门文章
-async function loadHotPosts() {
-    try {
-        const res = await postAPI.getList({ sortBy: 'views', order: 'desc', limit: 5, status: 'published' });
-        if (res.code === 200) {
-            renderHotPosts(res.data.records);
-        }
-    } catch (error) {
-        console.error('加载热门文章失败:', error);
-    }
-}
-
-// 渲染热门文章
-function renderHotPosts(posts) {
-    elements.hotPosts.innerHTML = posts.map((post, index) => `
-        <li>
-            <a href="post.html?slug=${post.slug}">
-                <span class="rank">${index + 1}</span>
-                <span class="title">${escapeHtml(post.title)}</span>
-            </a>
-        </li>
+    const recent = latest.map((post) => `
+        <div class="aside-list-item">
+            <a class="thumbnail" href="post.html?slug=${encodeURIComponent(post.slug)}" title="${escapeHtml(post.title)}">${thumb(post)}</a>
+            <div class="content">
+                <a class="title" href="post.html?slug=${encodeURIComponent(post.slug)}">${escapeHtml(post.title)}</a>
+                <time datetime="${escapeHtml(post.createdAt || '')}">${formatDashDate(post.createdAt)}</time>
+            </div>
+        </div>
     `).join('');
-}
+    const updated = latest[0] ? formatDashDate(latest[0].updatedAt || latest[0].createdAt) : '';
 
-// ========== 事件处理 ==========
-
-// 切换主题
-function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute('data-theme');
-    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
-    updateThemeIcon(newTheme);
-}
-
-// 处理搜索
-function handleSearch(e) {
-    state.keyword = e.target.value.trim();
-    state.currentPage = 1;
-    updateUrlParams({ keyword: state.keyword });
-    loadPosts();
-}
-
-// 处理筛选变化
-function handleFilterChange(e) {
-    const tab = e.target;
-    const sortBy = tab.dataset.sort;
-    
-    // 更新激活状态
-    document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    
-    // 更新状态并重新加载
-    state.sortBy = sortBy;
-    state.currentPage = 1;
-    loadPosts();
-}
-
-// 处理滚动
-function handleScroll() {
-    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-    
-    // 回到顶部按钮
-    if (scrollTop > 300) {
-        elements.backToTop.classList.add('visible');
-    } else {
-        elements.backToTop.classList.remove('visible');
-    }
+    aside.innerHTML = `
+        <div class="card-widget card-info text-center">
+            <div class="avatar-img"><span>札</span></div>
+            <div class="author-info-name">${escapeHtml(SITE.name)}</div>
+            <div class="author-info-description">${escapeHtml(SITE.description)}</div>
+            <div class="site-data">
+                <a href="archives.html"><div class="headline">文章</div><div class="length-num" data-count="posts">${state.totalPosts}</div></a>
+                <a href="tags.html"><div class="headline">标签</div><div class="length-num" data-count="tags">${state.tags.length}</div></a>
+                <a href="categories.html"><div class="headline">分类</div><div class="length-num" data-count="categories">${state.categories.length}</div></a>
+            </div>
+            <a id="card-info-btn" target="_blank" rel="noopener" href="${SITE.github}"><i class="fab fa-github"></i><span>GitHub</span></a>
+            <div class="card-info-social-icons">
+                <a class="social-icon" href="${SITE.github}" target="_blank" rel="noopener" title="Github"><i class="fab fa-github"></i></a>
+            </div>
+        </div>
+        <div class="card-widget card-announcement">
+            <div class="item-headline"><i class="fas fa-bullhorn"></i><span>公告</span></div>
+            <div class="announcement_content">${escapeHtml(SITE.announcement)}</div>
+        </div>
+        <div class="sticky_layout">
+            <div class="card-widget card-recent-post">
+                <div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div>
+                <div class="aside-list">${recent || '<p class="feed-status">还没有文章。</p>'}</div>
+            </div>
+            <div class="card-widget card-categories">
+                <div class="item-headline">
+                    <i class="fas fa-folder-open"></i><span>分类</span>
+                    <a class="card-more-btn" href="categories.html" title="查看更多"><i class="fas fa-angle-right"></i></a>
+                </div>
+                <ul class="card-category-list">${cats}</ul>
+            </div>
+            <div class="card-widget card-tags">
+                <div class="item-headline">
+                    <i class="fas fa-tags"></i><span>标签</span>
+                    <a class="card-more-btn" href="tags.html" title="查看更多"><i class="fas fa-angle-right"></i></a>
+                </div>
+                <div class="card-tag-cloud">${tags}</div>
+            </div>
+            <div class="card-widget card-webinfo">
+                <div class="item-headline"><i class="fas fa-chart-line"></i><span>网站资讯</span></div>
+                <div class="webinfo">
+                    <div class="webinfo-item"><div class="item-name">文章数目 :</div><div class="item-count">${state.totalPosts}</div></div>
+                    <div class="webinfo-item"><div class="item-name">运行时间 :</div><div class="item-count">${runtimeText()}</div></div>
+                    <div class="webinfo-item"><div class="item-name">最后更新 :</div><div class="item-count">${updated || '—'}</div></div>
+                </div>
+            </div>
+        </div>
+    `;
 }
